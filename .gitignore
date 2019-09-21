@@ -1,0 +1,17 @@
+lab1/fragments/
+lab1/work_directory_for_client/
+lab1/work_directory_for_server/
+tmp
+.classpath
+.project
+.idea
+*.iml
+/.idea/
+.checkstyle
+build
+target
+bin
+.settings
+out
+/build
+/target/
