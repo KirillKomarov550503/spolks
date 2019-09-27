@@ -1,6 +1,7 @@
 lab1/fragments/
 lab1/work_directory_for_client/
 lab1/work_directory_for_server/
+lab1/Communication/
 tmp
 .classpath
 .project

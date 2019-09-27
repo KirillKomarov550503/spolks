@@ -6,6 +6,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
@@ -17,7 +19,24 @@ public class Server {
 
   private Socket socket;
   private ServerSocket server;
-  private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_server";
+  private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_server\\";
+
+  private byte[] readBytes(DataInputStream socketReader) throws IOException {
+    byte[] array1 = new byte[0];
+    byte symbol;
+    byte[] resultArray = new byte[0];
+    while ((symbol = socketReader.readByte()) != ((byte) '\n')) {
+      if (symbol > 31) {
+        array1 = resultArray;
+        byte[] array2 = new byte[]{symbol};
+        resultArray = new byte[array1.length + array2.length];
+        System.arraycopy(array1, 0, resultArray, 0, array1.length);
+        System.arraycopy(array2, 0, resultArray, 0, array2.length);
+      }
+    }
+    return resultArray;
+  }
+
   private String readMessage(DataInputStream socketReader) throws IOException {
     StringBuilder message = new StringBuilder();
     byte symbol;
@@ -52,6 +71,29 @@ public class Server {
     socketWrite.close();
   }
 
+  private String insertZeros(String binNum) {
+    StringBuilder builder = new StringBuilder(binNum);
+    int diff = 8 - binNum.length() - 1;
+    for (int i = 0; i < diff ; i++) {
+      builder.insert(0, '0');
+    }
+    return builder.toString();
+  }
+
+  private int convertBytesToInt(byte[] bytes) {
+    StringBuilder stringBuilder = new StringBuilder();
+    for (int i = 0; i < bytes.length; i++) {
+      String binNum = Integer.toBinaryString(bytes[i]);
+      if (i != bytes.length - 1) {
+        stringBuilder.append(insertZeros(binNum));
+      } else {
+        stringBuilder.append(binNum);
+      }
+    }
+    return Integer.parseInt(stringBuilder.toString(), 2);
+  }
+
+
   public void runServer(int port) {
     try {
       server = new ServerSocket(port);
@@ -83,6 +125,9 @@ public class Server {
               break;
             case "exit":
               writeInSocket(socketWrite, "Server start closing connection");
+              break;
+            case "upload":
+              Files.write(Paths.get(WORK_DIRECTORY_PATH + words[1]), readBytes(socketRead));
               break;
             default:
               writeInSocket(socketWrite, "Command not found");
