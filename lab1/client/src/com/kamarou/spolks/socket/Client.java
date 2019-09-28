@@ -3,6 +3,8 @@ package com.kamarou.spolks.socket;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.file.Files;
@@ -55,11 +57,6 @@ public class Client {
     }
   }
 
-  private void writeBytes(DataOutputStream socketWriter, byte[] array) throws IOException {
-    socketWriter.write(array);
-    socketWriter.flush();
-  }
-
   private void writeInSocket(DataOutputStream socketWriter, String message) throws IOException {
     byte[] resBytes = concatArrays(new byte[]{(byte) -1}, message.getBytes());
     resBytes = concatArrays(resBytes, new byte[]{(byte) -1});
@@ -69,6 +66,49 @@ public class Client {
     }
     socketWriter.writeUTF(builder.toString());
     socketWriter.flush();
+  }
+
+  private int convertBytesToInt(byte[] bytes) {
+    StringBuilder stringBuilder = new StringBuilder();
+    for (int i = 0; i < bytes.length; i++) {
+      if (bytes[i] >= 0) {
+        String binNum = Integer.toBinaryString(bytes[i]);
+        if (i != bytes.length - 1 && bytes[i + 1] != -1) {
+          stringBuilder.append(insertZeros(binNum));
+        } else {
+          stringBuilder.append(binNum);
+        }
+      }
+    }
+    return Integer.parseInt(stringBuilder.toString(), 2);
+  }
+
+  private int readFileLength(DataInputStream socketReader) throws IOException {
+    byte[] resultArray = new byte[SIZE];
+    int read = socketReader.read(resultArray, 0, SIZE);
+    if (read <= -1) {
+      System.err.println("Can't read data from socket");
+    }
+    return convertBytesToInt(resultArray);
+  }
+
+  private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
+      throws IOException {
+    int size = Math.min(fileLength, 10000);
+    FileOutputStream outputStream = new FileOutputStream(new File(fileName), true);
+    while (fileLength != 0) {
+      if (fileLength < size) {
+        size = fileLength;
+      }
+      byte[] partOfFile = new byte[size];
+      int status = socketReader.read(partOfFile, 0, size);
+      if (status < 0) {
+        System.err.println("Can't read data from socket");
+      }
+      outputStream.write(partOfFile);
+      fileLength -= size;
+    }
+    outputStream.close();
   }
 
   private void closeConnection(Socket socket, DataInputStream socketRead,
@@ -143,11 +183,15 @@ public class Client {
         line += new String(new byte[]{(byte) delimeter});
         writeInSocket(socketWriter, line);
         String[] words = line.split("\\s");
-        if (words[0].toLowerCase().equals("upload")) {
-          writeFileLength(socketWriter, words[1]);
-          writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
-//          byte[] bytes = readFile(WORK_DIRECTORY_PATH + "Voprosy_ekz_Sist_Analiz_dnev_18-19 (1).doc");
-
+        switch (words[0].toLowerCase()){
+          case "upload":
+            writeFileLength(socketWriter, words[1]);
+            writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
+            break;
+          case "download":
+            int fileLength = readFileLength(socketReader);
+            saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+            break;
         }
         System.out.println("Response from server: " + readMessage(socketReader));
       }

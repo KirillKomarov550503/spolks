@@ -8,10 +8,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 import java.util.stream.Collectors;
 
 public class Server {
@@ -124,6 +128,59 @@ public class Server {
     outputStream.close();
   }
 
+  private void writeFile(DataOutputStream socketWriter, byte[] file) throws IOException {
+    int fileLength = file.length;
+    int size = Math.min(fileLength, 10000);
+    int from = 0;
+    int to = from + size;
+    while (fileLength != 0) {
+      byte[] temp = Arrays.copyOfRange(file, from, to);
+      socketWriter.write(temp);
+      socketWriter.flush();
+      from += size;
+      fileLength -= size;
+      if (fileLength < size) {
+        size = fileLength;
+      }
+      to += size;
+    }
+  }
+
+  private byte[] convertBinaryStringToByteArray(String binaryArray) {
+    List<Byte> bytes = new ArrayList<>();
+    StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < binaryArray.length(); i++) {
+      builder.append(binaryArray.charAt(i));
+      if ((i + 1) % 7 == 0 || (i + 1) == binaryArray.length()) {
+        bytes.add(Byte.parseByte(builder.toString(), 2));
+        builder.delete(0, builder.length());
+      }
+    }
+    byte[] initArray = new byte[0];
+    for (Byte bt : bytes) {
+      initArray = concatArrays(initArray, new byte[]{bt});
+    }
+    return initArray;
+  }
+
+  private void writeFileLength(DataOutputStream socketWriter, String fileName) throws IOException {
+    int fileLength = readFile(WORK_DIRECTORY_PATH + fileName).length;
+    byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
+    if (bytes.length < SIZE) {
+      byte[] temp = new byte[SIZE - bytes.length];
+      Arrays.fill(temp, (byte) -1);
+      socketWriter.write(concatArrays(bytes, temp));
+      socketWriter.flush();
+      return;
+    }
+    socketWriter.write(bytes);
+    socketWriter.flush();
+  }
+
+  private byte[] readFile(String path) throws IOException {
+    return Files.readAllBytes(Paths.get(path));
+  }
+
   public void runServer(int port) {
     try {
       server = new ServerSocket(port);
@@ -133,44 +190,48 @@ public class Server {
       socket = server.accept();
       System.out.println("Client accepted");
 
-      DataInputStream socketRead = new DataInputStream(
+      DataInputStream socketReader = new DataInputStream(
           new BufferedInputStream(socket.getInputStream()));
-      DataOutputStream socketWrite = new DataOutputStream(socket.getOutputStream());
-      writeInSocket(socketWrite, "Connection successful");
+      DataOutputStream socketWriter = new DataOutputStream(socket.getOutputStream());
+      writeInSocket(socketWriter, "Connection successful");
 
       String request = "";
       String command = "";
       while (!command.equals("exit")) {
-        request = readMessage(socketRead);
+        request = readMessage(socketReader);
         System.out.println(request);
         String[] words = request.split("\\s");
         command = words[0].toLowerCase();
         if (!command.isEmpty()) {
           switch (command) {
             case "echo":
-              writeInSocket(socketWrite, executeEcho(words));
+              writeInSocket(socketWriter, executeEcho(words));
               break;
             case "time":
-              writeInSocket(socketWrite, executeTime());
+              writeInSocket(socketWriter, executeTime());
               break;
             case "exit":
-              writeInSocket(socketWrite, "Server start closing connection");
+              writeInSocket(socketWriter, "Server start closing connection");
               break;
             case "upload":
-//              Files.write(Paths.get(WORK_DIRECTORY_PATH + words[1]), readBytes(socketRead));
-              int fileLength = readFileLength(socketRead);
-              saveFile(socketRead, WORK_DIRECTORY_PATH + words[1], fileLength);
-              writeInSocket(socketWrite, "File " + words[1] + " successfully received and saved");
+              int fileLength = readFileLength(socketReader);
+              saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+              writeInSocket(socketWriter, "File " + words[1] + " successfully received and saved");
+              break;
+            case "download":
+              writeFileLength(socketWriter, words[1]);
+              writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
+              writeInSocket(socketWriter, "File " + words[1] + " was sucessfully uploaded for client");
               break;
             default:
-              writeInSocket(socketWrite, "Command not found");
+              writeInSocket(socketWriter, "Command not found");
               Thread.sleep(100);
               break;
           }
         }
       }
       System.out.println("Closing connection");
-      closeConnection(socket, socketRead, socketWrite);
+      closeConnection(socket, socketReader, socketWriter);
     } catch (IOException | InterruptedException i) {
       System.err.println("Exception: " + i);
     }
