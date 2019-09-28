@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 
@@ -15,25 +16,59 @@ public class Client {
 
   private Scanner scanner = new Scanner(System.in);
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_client\\";
+  private static final int SIZE = 5;
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
   }
 
   private String readMessage(DataInputStream socketReader) throws IOException {
-    StringBuilder message = new StringBuilder();
-    byte symbol;
-    while ((symbol = socketReader.readByte()) != ((byte) '\n')) {
-      if (symbol > 31) {
-        message.append((char) symbol);
+    String message = socketReader.readUTF();
+    StringBuilder builder = new StringBuilder();
+    boolean isStart = false;
+    for (int i = 0; i < message.length(); i++) {
+      if ((byte) message.charAt(i) == -1) {
+        isStart = !isStart;
+      }
+      if (isStart && i > 0) {
+        builder.append(message.charAt(i));
       }
     }
-    return message.toString();
+    return builder.toString();
   }
 
-  private void writeInSocket(DataOutputStream socketWrite, String message) throws IOException {
-    socketWrite.writeUTF(message + "\n");
-    socketWrite.flush();
+  private void writeFile(DataOutputStream socketWriter, byte[] file) throws IOException {
+    int fileLength = file.length;
+    int size = Math.min(fileLength, 10000);
+    int from = 0;
+    int to = from + size;
+    while (fileLength != 0) {
+      byte[] temp = Arrays.copyOfRange(file, from, to);
+      socketWriter.write(temp);
+      socketWriter.flush();
+      from += size;
+      fileLength -= size;
+      if (fileLength < size) {
+        size = fileLength;
+      }
+      to += size;
+    }
+  }
+
+  private void writeBytes(DataOutputStream socketWriter, byte[] array) throws IOException {
+    socketWriter.write(array);
+    socketWriter.flush();
+  }
+
+  private void writeInSocket(DataOutputStream socketWriter, String message) throws IOException {
+    byte[] resBytes = concatArrays(new byte[]{(byte) -1}, message.getBytes());
+    resBytes = concatArrays(resBytes, new byte[]{(byte) -1});
+    StringBuilder builder = new StringBuilder();
+    for (int i = 0; i < resBytes.length; i++) {
+      builder.append((char) resBytes[i]);
+    }
+    socketWriter.writeUTF(builder.toString());
+    socketWriter.flush();
   }
 
   private void closeConnection(Socket socket, DataInputStream socketRead,
@@ -50,13 +85,21 @@ public class Client {
     return resultArray;
   }
 
+  private String insertZeros(String binNum) {
+    StringBuilder builder = new StringBuilder(binNum);
+    int diff = 8 - binNum.length() - 1;
+    for (int i = 0; i < diff; i++) {
+      builder.insert(0, '0');
+    }
+    return builder.toString();
+  }
+
   private byte[] convertBinaryStringToByteArray(String binaryArray) {
     List<Byte> bytes = new ArrayList<>();
     StringBuilder builder = new StringBuilder();
     for (int i = 0; i < binaryArray.length(); i++) {
       builder.append(binaryArray.charAt(i));
       if ((i + 1) % 7 == 0 || (i + 1) == binaryArray.length()) {
-        System.out.print(builder.toString() + " ");
         bytes.add(Byte.parseByte(builder.toString(), 2));
         builder.delete(0, builder.length());
       }
@@ -66,6 +109,20 @@ public class Client {
       initArray = concatArrays(initArray, new byte[]{bt});
     }
     return initArray;
+  }
+
+  private void writeFileLength(DataOutputStream socketWriter, String fileName) throws IOException {
+    int fileLength = readFile(WORK_DIRECTORY_PATH + fileName).length;
+    byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
+    if (bytes.length < SIZE) {
+      byte[] temp = new byte[SIZE - bytes.length];
+      Arrays.fill(temp, (byte) -1);
+      socketWriter.write(concatArrays(bytes, temp));
+      socketWriter.flush();
+      return;
+    }
+    socketWriter.write(bytes);
+    socketWriter.flush();
   }
 
   public void runClient(String address, int port) {
@@ -79,7 +136,7 @@ public class Client {
           new BufferedInputStream(socket.getInputStream()));
       System.out.println("Response from server: " + readMessage(socketReader));
       String line = "";
-      while (!line.equals("exit")) {
+      while (!line.equals("exit\n")) {
         System.out.print("Enter command: ");
         line = scanner.nextLine();
         char delimeter = '\n';
@@ -87,9 +144,8 @@ public class Client {
         writeInSocket(socketWriter, line);
         String[] words = line.split("\\s");
         if (words[0].toLowerCase().equals("upload")) {
-          socketWriter.write(concatArrays(readFile(WORK_DIRECTORY_PATH + words[1]), new byte[]{(byte)'\n'}));
-          //socketWriter.write(concatArrays(readFile("C:\\work_directory\\client\\azaza.txt"), new byte[]{(byte)'\n'}));
-          socketWriter.flush();
+          writeFileLength(socketWriter, words[1]);
+          writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
 //          byte[] bytes = readFile(WORK_DIRECTORY_PATH + "Voprosy_ekz_Sist_Analiz_dnev_18-19 (1).doc");
 
         }
@@ -102,6 +158,6 @@ public class Client {
   }
 
   public static void main(String args[]) {
-    new Client().runClient("127.0.0.1", 5002);
+    new Client().runClient("127.0.0.1", 5003);
   }
 }
