@@ -11,6 +11,7 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.DateFormat;
+import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -112,7 +113,9 @@ public class Server {
   private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
       throws IOException {
     int size = Math.min(fileLength, 10000);
+    int tempLength = fileLength;
     FileOutputStream outputStream = new FileOutputStream(new File(fileName), true);
+    Date start = new Date();
     while (fileLength != 0) {
       if (fileLength < size) {
         size = fileLength;
@@ -125,14 +128,21 @@ public class Server {
       outputStream.write(partOfFile);
       fileLength -= size;
     }
+    Date end = new Date();
+    long difference = end.getTime() - start.getTime();
+    DecimalFormat decimalFormat = new DecimalFormat("#.0#");
+
+    System.out.println("Bitrate (b/s): " + decimalFormat.format(tempLength / (difference / 1000.0)));
     outputStream.close();
   }
 
   private void writeFile(DataOutputStream socketWriter, byte[] file) throws IOException {
     int fileLength = file.length;
+    int tempLength = fileLength;
     int size = Math.min(fileLength, 10000);
     int from = 0;
     int to = from + size;
+    Date start = new Date();
     while (fileLength != 0) {
       byte[] temp = Arrays.copyOfRange(file, from, to);
       socketWriter.write(temp);
@@ -144,6 +154,11 @@ public class Server {
       }
       to += size;
     }
+    Date end = new Date();
+    long difference = end.getTime() - start.getTime();
+    DecimalFormat decimalFormat = new DecimalFormat("#.0#");
+
+    System.out.println("Bitrate (b/s): " + decimalFormat.format(tempLength / (difference / 1000.0)));
   }
 
   private byte[] convertBinaryStringToByteArray(String binaryArray) {
@@ -163,8 +178,8 @@ public class Server {
     return initArray;
   }
 
-  private void writeFileLength(DataOutputStream socketWriter, String fileName) throws IOException {
-    int fileLength = readFile(WORK_DIRECTORY_PATH + fileName).length;
+  private void writeFileLength(DataOutputStream socketWriter, byte[] file) throws IOException {
+    int fileLength = file.length;
     byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
     if (bytes.length < SIZE) {
       byte[] temp = new byte[SIZE - bytes.length];
@@ -189,7 +204,7 @@ public class Server {
 
       socket = server.accept();
       System.out.println("Client accepted");
-
+      System.out.println("Remote socket address: " + socket.getRemoteSocketAddress());
       DataInputStream socketReader = new DataInputStream(
           new BufferedInputStream(socket.getInputStream()));
       DataOutputStream socketWriter = new DataOutputStream(socket.getOutputStream());
@@ -215,13 +230,25 @@ public class Server {
               break;
             case "upload":
               int fileLength = readFileLength(socketReader);
-              saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
-              writeInSocket(socketWriter, "File " + words[1] + " successfully received and saved");
+              if (fileLength != 0) {
+                saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+                writeInSocket(socketWriter,
+                    "File " + words[1] + " successfully received and saved");
+              }
               break;
             case "download":
-              writeFileLength(socketWriter, words[1]);
-              writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
-              writeInSocket(socketWriter, "File " + words[1] + " was sucessfully uploaded for client");
+              if (!new File(WORK_DIRECTORY_PATH + words[1]).exists()) {
+                String error = String.format("File with name %s not found", words[1]);
+                System.err.printf(error);
+                writeFileLength(socketWriter, new byte[]{});
+                writeInSocket(socketWriter, error);
+              } else {
+                byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
+                writeFileLength(socketWriter, file);
+                writeFile(socketWriter, file);
+                writeInSocket(socketWriter,
+                    "File " + words[1] + " was sucessfully uploaded for client");
+              }
               break;
             default:
               writeInSocket(socketWriter, "Command not found");

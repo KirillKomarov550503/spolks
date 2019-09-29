@@ -151,8 +151,8 @@ public class Client {
     return initArray;
   }
 
-  private void writeFileLength(DataOutputStream socketWriter, String fileName) throws IOException {
-    int fileLength = readFile(WORK_DIRECTORY_PATH + fileName).length;
+  private void writeFileLength(DataOutputStream socketWriter, byte[] file) throws IOException {
+    int fileLength = file.length;
     byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
     if (bytes.length < SIZE) {
       byte[] temp = new byte[SIZE - bytes.length];
@@ -183,14 +183,24 @@ public class Client {
         line += new String(new byte[]{(byte) delimeter});
         writeInSocket(socketWriter, line);
         String[] words = line.split("\\s");
-        switch (words[0].toLowerCase()){
+        switch (words[0].toLowerCase()) {
           case "upload":
-            writeFileLength(socketWriter, words[1]);
-            writeFile(socketWriter, readFile(WORK_DIRECTORY_PATH + words[1]));
+
+            if (new File(WORK_DIRECTORY_PATH + words[1]).exists()) {
+              byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
+              writeFileLength(socketWriter, file);
+              writeFile(socketWriter, file);
+            } else {
+              System.out.println("File not found");
+              writeFileLength(socketWriter, new byte[]{});
+              continue;
+            }
             break;
           case "download":
             int fileLength = readFileLength(socketReader);
-            saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+            if (fileLength != 0) {
+              saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+            }
             break;
         }
         System.out.println("Response from server: " + readMessage(socketReader));
