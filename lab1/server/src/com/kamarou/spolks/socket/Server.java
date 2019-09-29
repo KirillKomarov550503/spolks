@@ -198,6 +198,32 @@ public class Server {
     return Files.readAllBytes(Paths.get(path));
   }
 
+  private void executeDownloadCommand(DataOutputStream socketWriter, String fileName)
+      throws IOException {
+    if (!new File(WORK_DIRECTORY_PATH + fileName).exists()) {
+      String error = String.format("File with name %s not found", fileName);
+      System.err.printf(error);
+      writeFileLength(socketWriter, new byte[]{});
+      writeInSocket(socketWriter, error);
+    } else {
+      byte[] file = readFile(WORK_DIRECTORY_PATH + fileName);
+      writeFileLength(socketWriter, file);
+      writeFile(socketWriter, file);
+      writeInSocket(socketWriter,
+          "File " + fileName + " was sucessfully uploaded for client");
+    }
+  }
+
+  private void executeUploadCommand(DataInputStream socketReader, DataOutputStream socketWriter,
+      String fileName) throws IOException {
+    int fileLength = readFileLength(socketReader);
+    if (fileLength != 0) {
+      saveFile(socketReader, WORK_DIRECTORY_PATH + fileName, fileLength);
+      writeInSocket(socketWriter,
+          "File " + fileName + " successfully received and saved");
+    }
+  }
+
   public void runServer(int port) {
     while (true) {
       try {
@@ -234,26 +260,10 @@ public class Server {
                 System.exit(0);
                 break;
               case "upload":
-                int fileLength = readFileLength(socketReader);
-                if (fileLength != 0) {
-                  saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
-                  writeInSocket(socketWriter,
-                      "File " + words[1] + " successfully received and saved");
-                }
+                executeUploadCommand(socketReader, socketWriter, words[1]);
                 break;
               case "download":
-                if (!new File(WORK_DIRECTORY_PATH + words[1]).exists()) {
-                  String error = String.format("File with name %s not found", words[1]);
-                  System.err.printf(error);
-                  writeFileLength(socketWriter, new byte[]{});
-                  writeInSocket(socketWriter, error);
-                } else {
-                  byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
-                  writeFileLength(socketWriter, file);
-                  writeFile(socketWriter, file);
-                  writeInSocket(socketWriter,
-                      "File " + words[1] + " was sucessfully uploaded for client");
-                }
+                executeDownloadCommand(socketWriter, words[1]);
                 break;
               default:
                 writeInSocket(socketWriter, "Command not found");

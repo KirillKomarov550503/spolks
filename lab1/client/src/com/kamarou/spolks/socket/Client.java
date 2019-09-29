@@ -165,13 +165,28 @@ public class Client {
     socketWriter.flush();
   }
 
+  private void executeDownloadCommand(DataOutputStream socketWriter, String fileName)
+      throws IOException {
+    if (!new File(WORK_DIRECTORY_PATH + fileName).exists()) {
+      String error = String.format("File with name %s not found", fileName);
+      System.err.printf(error);
+      writeFileLength(socketWriter, new byte[]{});
+      writeInSocket(socketWriter, error);
+    } else {
+      byte[] file = readFile(WORK_DIRECTORY_PATH + fileName);
+      writeFileLength(socketWriter, file);
+      writeFile(socketWriter, file);
+      writeInSocket(socketWriter,
+          "File " + fileName + " was sucessfully uploaded for client");
+    }
+  }
+
   public void runClient(String address, int port) {
     try {
       Socket socket = new Socket(address, port);
       System.out.println("Connected");
 
       DataOutputStream socketWriter = new DataOutputStream(socket.getOutputStream());
-      socketWriter.flush();
       DataInputStream socketReader = new DataInputStream(
           new BufferedInputStream(socket.getInputStream()));
       System.out.println("Response from server: " + readMessage(socketReader));
