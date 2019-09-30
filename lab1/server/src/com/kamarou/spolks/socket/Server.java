@@ -180,8 +180,7 @@ public class Server {
     return initArray;
   }
 
-  private void writeFileLength(DataOutputStream socketWriter, byte[] file) throws IOException {
-    int fileLength = file.length;
+  private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
     byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
     if (bytes.length < SIZE) {
       byte[] temp = new byte[SIZE - bytes.length];
@@ -203,11 +202,11 @@ public class Server {
     if (!new File(WORK_DIRECTORY_PATH + fileName).exists()) {
       String error = String.format("File with name %s not found", fileName);
       System.err.printf(error);
-      writeFileLength(socketWriter, new byte[]{});
+      writeFileLength(socketWriter, 0);
       writeInSocket(socketWriter, error);
     } else {
       byte[] file = readFile(WORK_DIRECTORY_PATH + fileName);
-      writeFileLength(socketWriter, file);
+      writeFileLength(socketWriter, file.length);
       writeFile(socketWriter, file);
       writeInSocket(socketWriter,
           "File " + fileName + " was sucessfully uploaded for client");
@@ -257,7 +256,6 @@ public class Server {
                 break;
               case "exit":
                 writeInSocket(socketWriter, "Server start closing connection");
-                System.exit(0);
                 break;
               case "upload":
                 executeUploadCommand(socketReader, socketWriter, words[1]);
