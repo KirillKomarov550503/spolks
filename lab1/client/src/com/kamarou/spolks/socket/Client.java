@@ -19,6 +19,7 @@ public class Client {
   private Scanner scanner = new Scanner(System.in);
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_client\\";
   private static final int SIZE = 5;
+  private static final int BYTE_FOR_READ_WRITE = 1000;
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
@@ -41,7 +42,7 @@ public class Client {
 
   private void writeFile(DataOutputStream socketWriter, byte[] file) throws IOException {
     int fileLength = file.length;
-    int size = Math.min(fileLength, 10000);
+    int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     int from = 0;
     int to = from + size;
     while (fileLength != 0) {
@@ -94,7 +95,7 @@ public class Client {
 
   private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
       throws IOException {
-    int size = Math.min(fileLength, 10000);
+    int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     FileOutputStream outputStream = new FileOutputStream(new File(fileName), true);
     while (fileLength != 0) {
       if (fileLength < size) {
@@ -151,8 +152,7 @@ public class Client {
     return initArray;
   }
 
-  private void writeFileLength(DataOutputStream socketWriter, byte[] file) throws IOException {
-    int fileLength = file.length;
+  private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
     byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
     if (bytes.length < SIZE) {
       byte[] temp = new byte[SIZE - bytes.length];
@@ -165,21 +165,6 @@ public class Client {
     socketWriter.flush();
   }
 
-  private void executeDownloadCommand(DataOutputStream socketWriter, String fileName)
-      throws IOException {
-    if (!new File(WORK_DIRECTORY_PATH + fileName).exists()) {
-      String error = String.format("File with name %s not found", fileName);
-      System.err.printf(error);
-      writeFileLength(socketWriter, new byte[]{});
-      writeInSocket(socketWriter, error);
-    } else {
-      byte[] file = readFile(WORK_DIRECTORY_PATH + fileName);
-      writeFileLength(socketWriter, file);
-      writeFile(socketWriter, file);
-      writeInSocket(socketWriter,
-          "File " + fileName + " was sucessfully uploaded for client");
-    }
-  }
 
   public void runClient(String address, int port) {
     try {
@@ -189,7 +174,22 @@ public class Client {
       DataOutputStream socketWriter = new DataOutputStream(socket.getOutputStream());
       DataInputStream socketReader = new DataInputStream(
           new BufferedInputStream(socket.getInputStream()));
+
+
       System.out.println("Response from server: " + readMessage(socketReader));
+
+      writeInSocket(socketWriter, "Client1");
+      String lastCommand = readMessage(socketReader);
+      if (!lastCommand.isEmpty() && lastCommand.equals("upload")) {
+        String lastFileName = readMessage(socketReader);
+        System.out.println("LastFileName: " + lastFileName);
+        int leftFileLength = readFileLength(socketReader);
+        System.out.println("LeftFileLength: " + leftFileLength);
+        byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
+        writeFile(socketWriter,
+            Arrays.copyOfRange(file, file.length - leftFileLength, file.length));
+        System.out.println("Response: " + readMessage(socketReader));
+      }
       String line = "";
       while (!line.equals("exit\n")) {
         System.out.print("Enter command: ");
@@ -203,11 +203,11 @@ public class Client {
 
             if (new File(WORK_DIRECTORY_PATH + words[1]).exists()) {
               byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
-              writeFileLength(socketWriter, file);
+              writeFileLength(socketWriter, file.length);
               writeFile(socketWriter, file);
             } else {
               System.out.println("File not found");
-              writeFileLength(socketWriter, new byte[]{});
+              writeFileLength(socketWriter, 0);
               continue;
             }
             break;
