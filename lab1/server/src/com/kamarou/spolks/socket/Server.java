@@ -31,7 +31,7 @@ public class Server {
   private String lastCommand = "";
   private String lastFileName;
   private int leftFileLength;
-  private static final int BYTES_FOR_READ_WRITE = 1000;
+  private static final int BYTES_FOR_READ_WRITE = 500;
   private FileOutputStream outputStream;
 
   private String readMessage(DataInputStream socketReader) throws IOException {
@@ -162,11 +162,11 @@ public class Server {
         size = fileLength;
       }
       to += size;
+      leftFileLength = fileLength;
     }
     Date end = new Date();
     long difference = end.getTime() - start.getTime();
     DecimalFormat decimalFormat = new DecimalFormat("#.0#");
-
     System.out
         .println("Bitrate (b/s): " + decimalFormat.format(tempLength / (difference / 1000.0)));
   }
@@ -190,6 +190,10 @@ public class Server {
 
   private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
     byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
+    System.out.println("");
+    for (int i = 0; i < bytes.length; i++) {
+      System.out.print(bytes[i] + " ");
+    }
     if (bytes.length < SIZE) {
       byte[] temp = new byte[SIZE - bytes.length];
       Arrays.fill(temp, (byte) -1);
@@ -237,7 +241,7 @@ public class Server {
     while (true) {
       try {
         server = new ServerSocket(port);
-        server.setSoTimeout(30000);
+        server.setSoTimeout(100000);
         System.out.println("Server started");
         System.out.println("Waiting for a client ...");
 
@@ -260,6 +264,20 @@ public class Server {
             saveFile(socketReader, WORK_DIRECTORY_PATH + lastFileName, leftFileLength);
             writeInSocket(socketWriter,
                 "File " + lastFileName + " successfully received and saved");
+          }
+          if (lastCommand.equals("download")) {
+            byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
+            writeInSocket(socketWriter, lastFileName);
+            int fileLength = readFileLength(socketReader);
+            System.out.println("\nReceived FileLength: " + fileLength);
+            int realLeftFileLength = file.length - fileLength;
+            System.out.println("realLeftFileLength: " + realLeftFileLength);
+            writeFileLength(socketWriter, realLeftFileLength);
+            if (fileLength != 0) {
+              writeFile(socketWriter, Arrays.copyOfRange(file, fileLength, file.length));
+              writeInSocket(socketWriter, "Finished");
+            }
+
           }
         }
         lastClient = clientAddress;
@@ -292,6 +310,8 @@ public class Server {
               case "download":
                 lastFileName = words[1];
                 executeDownloadCommand(socketWriter, words[1]);
+                lastFileName = "";
+                leftFileLength = 0;
                 break;
               default:
                 writeInSocket(socketWriter, "Command not found");
@@ -316,11 +336,14 @@ public class Server {
           }
           lastCommand = "";
           lastClient = "";
+          leftFileLength = 0;
+          lastFileName = "";
         } catch (IOException ex) {
           ex.printStackTrace();
         }
       } catch (IOException | InterruptedException i) {
         System.err.println("Connection issue");
+        System.err.println("LeftFileLength in catch block: " + leftFileLength);
         try {
           if (socket != null) {
             socket.close();

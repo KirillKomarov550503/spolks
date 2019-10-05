@@ -6,6 +6,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UTFDataFormatException;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -19,7 +20,8 @@ public class Client {
   private Scanner scanner = new Scanner(System.in);
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_client\\";
   private static final int SIZE = 5;
-  private static final int BYTE_FOR_READ_WRITE = 1000;
+  private static final int BYTE_FOR_READ_WRITE = 500;
+  private FileOutputStream outputStream;
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
@@ -90,13 +92,17 @@ public class Client {
     if (read <= -1) {
       System.err.println("Can't read data from socket");
     }
+    System.out.println("ResultArray");
+    for (int i = 0; i < SIZE; i++) {
+      System.out.print(resultArray[i] + " ");
+    }
     return convertBytesToInt(resultArray);
   }
 
   private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
       throws IOException {
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
-    FileOutputStream outputStream = new FileOutputStream(new File(fileName), true);
+    outputStream = new FileOutputStream(new File(fileName), true);
     while (fileLength != 0) {
       if (fileLength < size) {
         size = fileLength;
@@ -104,7 +110,8 @@ public class Client {
       byte[] partOfFile = new byte[size];
       int status = socketReader.read(partOfFile, 0, size);
       if (status < 0) {
-        System.err.println("Can't read data from socket");
+        System.err.println("Problem with reading bytes");
+        throw new IOException();
       }
       outputStream.write(partOfFile);
       fileLength -= size;
@@ -166,6 +173,17 @@ public class Client {
   }
 
 
+  private void uploadAfterConnectionIssue(DataOutputStream socketWriter,
+      DataInputStream socketReader) throws IOException {
+    String lastFileName = readMessage(socketReader);
+    int leftFileLength = readFileLength(socketReader);
+    byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
+    writeFile(socketWriter,
+        Arrays.copyOfRange(file, file.length - leftFileLength, file.length));
+    System.out.println("Response: " + readMessage(socketReader));
+  }
+
+
   public void runClient(String address, int port) {
     try {
       Socket socket = new Socket(address, port);
@@ -175,19 +193,21 @@ public class Client {
       DataInputStream socketReader = new DataInputStream(
           new BufferedInputStream(socket.getInputStream()));
 
-
       System.out.println("Response from server: " + readMessage(socketReader));
 
       writeInSocket(socketWriter, "Client1");
       String lastCommand = readMessage(socketReader);
       if (!lastCommand.isEmpty() && lastCommand.equals("upload")) {
+        uploadAfterConnectionIssue(socketWriter, socketReader);
+      }
+      if (!lastCommand.isEmpty() && lastCommand.equals("download")) {
         String lastFileName = readMessage(socketReader);
-        System.out.println("LastFileName: " + lastFileName);
+        int fileLength = readFile(WORK_DIRECTORY_PATH + lastFileName).length;
+        System.out.println("FileLength: " + fileLength);
+        writeFileLength(socketWriter, fileLength);
         int leftFileLength = readFileLength(socketReader);
-        System.out.println("LeftFileLength: " + leftFileLength);
-        byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
-        writeFile(socketWriter,
-            Arrays.copyOfRange(file, file.length - leftFileLength, file.length));
+        System.out.println("RealLeftFileLength: " + leftFileLength);
+        saveFile(socketReader, WORK_DIRECTORY_PATH + lastFileName, leftFileLength);
         System.out.println("Response: " + readMessage(socketReader));
       }
       String line = "";
