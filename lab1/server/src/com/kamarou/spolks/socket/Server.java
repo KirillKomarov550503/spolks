@@ -9,15 +9,14 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
 import java.util.stream.Collectors;
 
 public class Server {
@@ -26,7 +25,7 @@ public class Server {
   private Socket socket;
   private ServerSocket server;
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_server\\";
-  private static int SIZE = 5;
+  private static int SIZE = 4;
   private String lastClient = "";
   private String lastCommand = "";
   private String lastFileName;
@@ -77,35 +76,11 @@ public class Server {
     socketWrite.close();
   }
 
-  private String insertZeros(String binNum) {
-    StringBuilder builder = new StringBuilder(binNum);
-    int diff = 8 - binNum.length() - 1;
-    for (int i = 0; i < diff; i++) {
-      builder.insert(0, '0');
-    }
-    return builder.toString();
-  }
-
   private byte[] concatArrays(byte[] array1, byte[] array2) {
     byte[] resultArray = new byte[array1.length + array2.length];
     System.arraycopy(array1, 0, resultArray, 0, array1.length);
     System.arraycopy(array2, 0, resultArray, array1.length, array2.length);
     return resultArray;
-  }
-
-  private int convertBytesToInt(byte[] bytes) {
-    StringBuilder stringBuilder = new StringBuilder();
-    for (int i = 0; i < bytes.length; i++) {
-      if (bytes[i] >= 0) {
-        String binNum = Integer.toBinaryString(bytes[i]);
-        if (i != bytes.length - 1 && bytes[i + 1] != -1) {
-          stringBuilder.append(insertZeros(binNum));
-        } else {
-          stringBuilder.append(binNum);
-        }
-      }
-    }
-    return Integer.parseInt(stringBuilder.toString(), 2);
   }
 
   private int readFileLength(DataInputStream socketReader) throws IOException {
@@ -114,7 +89,7 @@ public class Server {
     if (read <= -1) {
       System.err.println("Can't read data from socket");
     }
-    return convertBytesToInt(resultArray);
+    return ByteBuffer.wrap(resultArray).getInt();
   }
 
   private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
@@ -171,36 +146,8 @@ public class Server {
         .println("Bitrate (b/s): " + decimalFormat.format(tempLength / (difference / 1000.0)));
   }
 
-  private byte[] convertBinaryStringToByteArray(String binaryArray) {
-    List<Byte> bytes = new ArrayList<>();
-    StringBuilder builder = new StringBuilder();
-    for (int i = 0; i < binaryArray.length(); i++) {
-      builder.append(binaryArray.charAt(i));
-      if ((i + 1) % 7 == 0 || (i + 1) == binaryArray.length()) {
-        bytes.add(Byte.parseByte(builder.toString(), 2));
-        builder.delete(0, builder.length());
-      }
-    }
-    byte[] initArray = new byte[0];
-    for (Byte bt : bytes) {
-      initArray = concatArrays(initArray, new byte[]{bt});
-    }
-    return initArray;
-  }
-
   private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
-    byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
-    System.out.println("");
-    for (int i = 0; i < bytes.length; i++) {
-      System.out.print(bytes[i] + " ");
-    }
-    if (bytes.length < SIZE) {
-      byte[] temp = new byte[SIZE - bytes.length];
-      Arrays.fill(temp, (byte) -1);
-      socketWriter.write(concatArrays(bytes, temp));
-      socketWriter.flush();
-      return;
-    }
+    byte[] bytes = ByteBuffer.allocate(SIZE).putInt(fileLength).array();
     socketWriter.write(bytes);
     socketWriter.flush();
   }
@@ -269,13 +216,11 @@ public class Server {
             byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
             writeInSocket(socketWriter, lastFileName);
             int fileLength = readFileLength(socketReader);
-            System.out.println("\nReceived FileLength: " + fileLength);
             int realLeftFileLength = file.length - fileLength;
-            System.out.println("realLeftFileLength: " + realLeftFileLength);
             writeFileLength(socketWriter, realLeftFileLength);
             if (fileLength != 0) {
               writeFile(socketWriter, Arrays.copyOfRange(file, fileLength, file.length));
-              writeInSocket(socketWriter, "Finished");
+              writeInSocket(socketWriter, "Command download finished");
             }
 
           }

@@ -6,8 +6,8 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.UTFDataFormatException;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -19,7 +19,7 @@ public class Client {
 
   private Scanner scanner = new Scanner(System.in);
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_client\\";
-  private static final int SIZE = 5;
+  private static final int SIZE = 4;
   private static final int BYTE_FOR_READ_WRITE = 500;
   private FileOutputStream outputStream;
 
@@ -71,32 +71,13 @@ public class Client {
     socketWriter.flush();
   }
 
-  private int convertBytesToInt(byte[] bytes) {
-    StringBuilder stringBuilder = new StringBuilder();
-    for (int i = 0; i < bytes.length; i++) {
-      if (bytes[i] >= 0) {
-        String binNum = Integer.toBinaryString(bytes[i]);
-        if (i != bytes.length - 1 && bytes[i + 1] != -1) {
-          stringBuilder.append(insertZeros(binNum));
-        } else {
-          stringBuilder.append(binNum);
-        }
-      }
-    }
-    return Integer.parseInt(stringBuilder.toString(), 2);
-  }
-
   private int readFileLength(DataInputStream socketReader) throws IOException {
     byte[] resultArray = new byte[SIZE];
     int read = socketReader.read(resultArray, 0, SIZE);
     if (read <= -1) {
       System.err.println("Can't read data from socket");
     }
-    System.out.println("ResultArray");
-    for (int i = 0; i < SIZE; i++) {
-      System.out.print(resultArray[i] + " ");
-    }
-    return convertBytesToInt(resultArray);
+    return ByteBuffer.wrap(resultArray).getInt();
   }
 
   private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
@@ -133,45 +114,11 @@ public class Client {
     return resultArray;
   }
 
-  private String insertZeros(String binNum) {
-    StringBuilder builder = new StringBuilder(binNum);
-    int diff = 8 - binNum.length() - 1;
-    for (int i = 0; i < diff; i++) {
-      builder.insert(0, '0');
-    }
-    return builder.toString();
-  }
-
-  private byte[] convertBinaryStringToByteArray(String binaryArray) {
-    List<Byte> bytes = new ArrayList<>();
-    StringBuilder builder = new StringBuilder();
-    for (int i = 0; i < binaryArray.length(); i++) {
-      builder.append(binaryArray.charAt(i));
-      if ((i + 1) % 7 == 0 || (i + 1) == binaryArray.length()) {
-        bytes.add(Byte.parseByte(builder.toString(), 2));
-        builder.delete(0, builder.length());
-      }
-    }
-    byte[] initArray = new byte[0];
-    for (Byte bt : bytes) {
-      initArray = concatArrays(initArray, new byte[]{bt});
-    }
-    return initArray;
-  }
-
   private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
-    byte[] bytes = convertBinaryStringToByteArray(Integer.toBinaryString(fileLength));
-    if (bytes.length < SIZE) {
-      byte[] temp = new byte[SIZE - bytes.length];
-      Arrays.fill(temp, (byte) -1);
-      socketWriter.write(concatArrays(bytes, temp));
-      socketWriter.flush();
-      return;
-    }
+    byte[] bytes = ByteBuffer.allocate(SIZE).putInt(fileLength).array();
     socketWriter.write(bytes);
     socketWriter.flush();
   }
-
 
   private void uploadAfterConnectionIssue(DataOutputStream socketWriter,
       DataInputStream socketReader) throws IOException {
@@ -203,10 +150,8 @@ public class Client {
       if (!lastCommand.isEmpty() && lastCommand.equals("download")) {
         String lastFileName = readMessage(socketReader);
         int fileLength = readFile(WORK_DIRECTORY_PATH + lastFileName).length;
-        System.out.println("FileLength: " + fileLength);
         writeFileLength(socketWriter, fileLength);
         int leftFileLength = readFileLength(socketReader);
-        System.out.println("RealLeftFileLength: " + leftFileLength);
         saveFile(socketReader, WORK_DIRECTORY_PATH + lastFileName, leftFileLength);
         System.out.println("Response: " + readMessage(socketReader));
       }
