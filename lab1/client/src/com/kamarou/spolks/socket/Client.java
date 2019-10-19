@@ -10,39 +10,45 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Scanner;
 
 public class Client {
 
   private Scanner scanner = new Scanner(System.in);
-  private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7 сем\\spolks\\lab1\\work_directory_for_client\\";
+  private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_client\\";
   private static final int SIZE = 4;
-  private static final int BYTE_FOR_READ_WRITE = 500;
+  private static final int BYTE_FOR_READ_WRITE = 1024;
   private FileOutputStream outputStream;
+
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
   }
 
-  private String readMessage(DataInputStream socketReader) throws IOException {
-    String message = socketReader.readUTF();
-    StringBuilder builder = new StringBuilder();
-    boolean isStart = false;
-    for (int i = 0; i < message.length(); i++) {
-      if ((byte) message.charAt(i) == -1) {
-        isStart = !isStart;
-      }
-      if (isStart && i > 0) {
-        builder.append(message.charAt(i));
-      }
+  private int readLength(DataInputStream socketReader) throws IOException {
+    byte[] resultArray = new byte[SIZE];
+    int read = socketReader.read(resultArray, 0, SIZE);
+    if (read <= -1) {
+      System.err.println("Can't read data from socket");
     }
-    return builder.toString();
+    return ByteBuffer.wrap(resultArray).getInt();
+
   }
 
-  private void writeFile(DataOutputStream socketWriter, byte[] file) throws IOException {
+  private String readMessage(DataInputStream socketReader) throws IOException {
+    int commandLength = readLength(socketReader);
+    byte[] bts = new byte[commandLength];
+    int res = socketReader.read(bts, 0, commandLength);
+    if (res < 0) {
+      throw new IOException("Cant' read data from socket");
+    }
+    return new String(bts);
+  }
+
+
+  private void writeFile(DataOutputStream socketWriter, DataInputStream socketReader, byte[] file)
+      throws IOException {
     int fileLength = file.length;
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     int from = 0;
@@ -51,6 +57,10 @@ public class Client {
       byte[] temp = Arrays.copyOfRange(file, from, to);
       socketWriter.write(temp);
       socketWriter.flush();
+      byte ack = socketReader.readByte();
+      if (ack != 6) {
+        continue;
+      }
       from += size;
       fileLength -= size;
       if (fileLength < size) {
@@ -61,26 +71,14 @@ public class Client {
   }
 
   private void writeInSocket(DataOutputStream socketWriter, String message) throws IOException {
-    byte[] resBytes = concatArrays(new byte[]{(byte) -1}, message.getBytes());
-    resBytes = concatArrays(resBytes, new byte[]{(byte) -1});
-    StringBuilder builder = new StringBuilder();
-    for (int i = 0; i < resBytes.length; i++) {
-      builder.append((char) resBytes[i]);
-    }
-    socketWriter.writeUTF(builder.toString());
+    int commandLength = message.length();
+    writeLength(socketWriter, commandLength);
+    socketWriter.write(message.getBytes());
     socketWriter.flush();
   }
 
-  private int readFileLength(DataInputStream socketReader) throws IOException {
-    byte[] resultArray = new byte[SIZE];
-    int read = socketReader.read(resultArray, 0, SIZE);
-    if (read <= -1) {
-      System.err.println("Can't read data from socket");
-    }
-    return ByteBuffer.wrap(resultArray).getInt();
-  }
-
-  private void saveFile(DataInputStream socketReader, String fileName, int fileLength)
+  private void saveFile(DataInputStream socketReader, DataOutputStream socketWriter,
+      String fileName, int fileLength)
       throws IOException {
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     outputStream = new FileOutputStream(new File(fileName), true);
@@ -96,6 +94,8 @@ public class Client {
       }
       outputStream.write(partOfFile);
       fileLength -= size;
+      socketWriter.writeByte(6);
+      socketWriter.flush();
     }
     outputStream.close();
   }
@@ -107,14 +107,7 @@ public class Client {
     socketWrite.close();
   }
 
-  private byte[] concatArrays(byte[] array1, byte[] array2) {
-    byte[] resultArray = new byte[array1.length + array2.length];
-    System.arraycopy(array1, 0, resultArray, 0, array1.length);
-    System.arraycopy(array2, 0, resultArray, array1.length, array2.length);
-    return resultArray;
-  }
-
-  private void writeFileLength(DataOutputStream socketWriter, int fileLength) throws IOException {
+  private void writeLength(DataOutputStream socketWriter, int fileLength) throws IOException {
     byte[] bytes = ByteBuffer.allocate(SIZE).putInt(fileLength).array();
     socketWriter.write(bytes);
     socketWriter.flush();
@@ -123,9 +116,9 @@ public class Client {
   private void uploadAfterConnectionIssue(DataOutputStream socketWriter,
       DataInputStream socketReader) throws IOException {
     String lastFileName = readMessage(socketReader);
-    int leftFileLength = readFileLength(socketReader);
+    int leftFileLength = readLength(socketReader);
     byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
-    writeFile(socketWriter,
+    writeFile(socketWriter, socketReader,
         Arrays.copyOfRange(file, file.length - leftFileLength, file.length));
     System.out.println("Response: " + readMessage(socketReader));
   }
@@ -150,9 +143,9 @@ public class Client {
       if (!lastCommand.isEmpty() && lastCommand.equals("download")) {
         String lastFileName = readMessage(socketReader);
         int fileLength = readFile(WORK_DIRECTORY_PATH + lastFileName).length;
-        writeFileLength(socketWriter, fileLength);
-        int leftFileLength = readFileLength(socketReader);
-        saveFile(socketReader, WORK_DIRECTORY_PATH + lastFileName, leftFileLength);
+        writeLength(socketWriter, fileLength);
+        int leftFileLength = readLength(socketReader);
+        saveFile(socketReader, socketWriter, WORK_DIRECTORY_PATH + lastFileName, leftFileLength);
         System.out.println("Response: " + readMessage(socketReader));
       }
       String line = "";
@@ -168,18 +161,18 @@ public class Client {
 
             if (new File(WORK_DIRECTORY_PATH + words[1]).exists()) {
               byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
-              writeFileLength(socketWriter, file.length);
-              writeFile(socketWriter, file);
+              writeLength(socketWriter, file.length);
+              writeFile(socketWriter, socketReader, file);
             } else {
               System.out.println("File not found");
-              writeFileLength(socketWriter, 0);
+              writeLength(socketWriter, 0);
               continue;
             }
             break;
           case "download":
-            int fileLength = readFileLength(socketReader);
+            int fileLength = readLength(socketReader);
             if (fileLength != 0) {
-              saveFile(socketReader, WORK_DIRECTORY_PATH + words[1], fileLength);
+              saveFile(socketReader, socketWriter, WORK_DIRECTORY_PATH + words[1], fileLength);
             }
             break;
         }
@@ -187,11 +180,11 @@ public class Client {
       }
       closeConnection(socket, socketReader, socketWriter);
     } catch (IOException u) {
-      System.err.println("IOException: " + u);
+      u.printStackTrace();
     }
   }
 
   public static void main(String args[]) {
-    new Client().runClient("127.0.0.1", 5003);
+    new Client().runClient("192.168.100.5", 5003);
   }
 }
