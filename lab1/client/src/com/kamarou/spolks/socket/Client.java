@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -17,10 +18,12 @@ public class Client {
 
   private Scanner scanner = new Scanner(System.in);
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_client\\";
+  private static final String SERVER_ADDRESS = "192.168.100.4";
+  private static final int SERVER_PORT = 5003;
   private static final int SIZE = 4;
   private static final int BYTE_FOR_READ_WRITE = 1024;
   private FileOutputStream outputStream;
-
+  private Socket socket;
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
@@ -48,7 +51,7 @@ public class Client {
 
 
   private void writeFile(DataOutputStream socketWriter, DataInputStream socketReader, byte[] file)
-      throws IOException {
+      throws IOException, InterruptedException {
     int fileLength = file.length;
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     int from = 0;
@@ -57,9 +60,18 @@ public class Client {
       byte[] temp = Arrays.copyOfRange(file, from, to);
       socketWriter.write(temp);
       socketWriter.flush();
-      byte ack = socketReader.readByte();
-      if (ack != 6) {
-        continue;
+      try {
+        if (!socket.isInputShutdown() || !socket.isOutputShutdown()) {
+
+          byte ack = socketReader.readByte();
+          if (ack != 6) {
+            continue;
+          }
+        } else {
+          throw new InterruptedException();
+        }
+      } catch (SocketTimeoutException e){
+        runClient(SERVER_ADDRESS, SERVER_PORT);
       }
       from += size;
       fileLength -= size;
@@ -87,10 +99,15 @@ public class Client {
         size = fileLength;
       }
       byte[] partOfFile = new byte[size];
-      int status = socketReader.read(partOfFile, 0, size);
-      if (status < 0) {
-        System.err.println("Problem with reading bytes");
-        throw new IOException();
+      try {
+        int status = socketReader.read(partOfFile, 0, size);
+        if (status < 0) {
+          System.err.println("Problem with reading bytes");
+          throw new IOException();
+        }
+      } catch (SocketTimeoutException e) {
+        outputStream.close();
+        runClient(SERVER_ADDRESS, SERVER_PORT);
       }
       outputStream.write(partOfFile);
       fileLength -= size;
@@ -114,7 +131,7 @@ public class Client {
   }
 
   private void uploadAfterConnectionIssue(DataOutputStream socketWriter,
-      DataInputStream socketReader) throws IOException {
+      DataInputStream socketReader) throws IOException, InterruptedException {
     String lastFileName = readMessage(socketReader);
     int leftFileLength = readLength(socketReader);
     byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
@@ -126,7 +143,7 @@ public class Client {
 
   public void runClient(String address, int port) {
     try {
-      Socket socket = new Socket(address, port);
+      socket = new Socket(address, port);
       System.out.println("Connected");
 
       DataOutputStream socketWriter = new DataOutputStream(socket.getOutputStream());
@@ -179,12 +196,12 @@ public class Client {
         System.out.println("Response from server: " + readMessage(socketReader));
       }
       closeConnection(socket, socketReader, socketWriter);
-    } catch (IOException u) {
+    } catch (IOException | InterruptedException u) {
       u.printStackTrace();
     }
   }
 
   public static void main(String args[]) {
-    new Client().runClient("192.168.100.5", 5003);
+    new Client().runClient(SERVER_ADDRESS, SERVER_PORT);
   }
 }

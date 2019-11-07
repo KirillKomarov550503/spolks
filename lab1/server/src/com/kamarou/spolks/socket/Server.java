@@ -30,6 +30,8 @@ public class Server {
   private int leftFileLength;
   private static final int BYTES_FOR_READ_WRITE = 1024;
   private FileOutputStream outputStream;
+  private static final int COMMAND_LENGTH = 4;
+
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
@@ -55,7 +57,7 @@ public class Server {
     return new String(bts);
   }
 
-  private void writeFile(DataOutputStream socketWriter, DataInputStream socketReader,byte[] file) throws IOException {
+  private void writeFile(DataOutputStream socketWriter, DataInputStream socketReader,byte[] file) throws IOException, InterruptedException {
     int fileLength = file.length;
     int tempLength = fileLength;
     int size = Math.min(fileLength, BYTES_FOR_READ_WRITE);
@@ -66,10 +68,24 @@ public class Server {
       byte[] temp = Arrays.copyOfRange(file, from, to);
       socketWriter.write(temp);
       socketWriter.flush();
-      byte ack = socketReader.readByte();
-      if(ack != 6) {
-        continue;
+
+      try {
+        if(!socket.isInputShutdown() || !socket.isOutputShutdown()) {
+
+          byte ack = socketReader.readByte();
+          if(ack != 6) {
+            System.out.println("Wait 6 ack");
+            continue;
+          }
+        } else {
+          System.err.println("Problem");
+          throw new InterruptedException();
+
+        }
+      } catch (SocketTimeoutException e) {
+        runServer(5003);
       }
+
       from += size;
       fileLength -= size;
       if (fileLength < size) {
@@ -104,10 +120,15 @@ public class Server {
         size = fileLength;
       }
       byte[] partOfFile = new byte[size];
-      int status = socketReader.read(partOfFile, 0, size);
-      if (status < 0) {
-        System.err.println("Problem with reading bytes");
-        throw new IOException();
+      try {
+        int status = socketReader.read(partOfFile, 0, size);
+        if (status < 0) {
+          System.err.println("Problem with reading bytes");
+          throw new IOException();
+        }
+      } catch (SocketTimeoutException e){
+        outputStream.close();
+        runServer(5003);
       }
       outputStream.write(partOfFile);
       fileLength -= size;
@@ -149,7 +170,7 @@ public class Server {
 
   private void executeDownloadCommand(DataOutputStream socketWriter,
       DataInputStream socketReader, String fileName)
-      throws IOException {
+      throws IOException,InterruptedException {
     if (!new File(WORK_DIRECTORY_PATH + fileName).exists()) {
       String error = String.format("File with name %s not found", fileName);
       System.err.printf(error);
@@ -184,6 +205,7 @@ public class Server {
         System.out.println("Waiting for a client ...");
 
         socket = server.accept();
+
         System.out.println("Client accepted");
         DataInputStream socketReader = new DataInputStream(
             new BufferedInputStream(socket.getInputStream()));
@@ -300,5 +322,6 @@ public class Server {
   public static void main(String args[]) {
     new Server().runServer(5003);
   }
+
 }
 
