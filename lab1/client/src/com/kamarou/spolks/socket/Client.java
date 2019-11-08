@@ -11,6 +11,7 @@ import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.text.DecimalFormat;
 import java.util.Arrays;
 import java.util.Scanner;
 
@@ -24,6 +25,8 @@ public class Client {
   private static final int BYTE_FOR_READ_WRITE = 1024;
   private FileOutputStream outputStream;
   private Socket socket;
+  private volatile int dataSize;
+  private volatile boolean isNeedStop;
 
   private byte[] readFile(String path) throws IOException {
     return Files.readAllBytes(Paths.get(path));
@@ -49,6 +52,25 @@ public class Client {
     return new String(bts);
   }
 
+  private void printBitrate(){
+    isNeedStop = false;
+    dataSize = 0;
+    Thread thread = new Thread(() -> {
+      while (!isNeedStop) {
+        dataSize = 0;
+        try {
+          Thread.sleep(1000);
+          DecimalFormat decimalFormat = new DecimalFormat("#.0#");
+          System.out.println(
+              String.format("Bitrate %s (KB/s)", (decimalFormat.format(dataSize / 1000.0))));
+        } catch (InterruptedException e) {
+          e.printStackTrace();
+        }
+
+      }
+    });
+    thread.start();
+  }
 
   private void writeFile(DataOutputStream socketWriter, DataInputStream socketReader, byte[] file)
       throws IOException, InterruptedException {
@@ -56,6 +78,7 @@ public class Client {
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     int from = 0;
     int to = from + size;
+    printBitrate();
     while (fileLength != 0) {
       byte[] temp = Arrays.copyOfRange(file, from, to);
       socketWriter.write(temp);
@@ -70,16 +93,18 @@ public class Client {
         } else {
           throw new InterruptedException();
         }
-      } catch (SocketTimeoutException e){
+      } catch (SocketTimeoutException e) {
         runClient(SERVER_ADDRESS, SERVER_PORT);
       }
       from += size;
       fileLength -= size;
+      dataSize += size;
       if (fileLength < size) {
         size = fileLength;
       }
       to += size;
     }
+    isNeedStop = true;
   }
 
   private void writeInSocket(DataOutputStream socketWriter, String message) throws IOException {
@@ -94,6 +119,7 @@ public class Client {
       throws IOException {
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     outputStream = new FileOutputStream(new File(fileName), true);
+    printBitrate();
     while (fileLength != 0) {
       if (fileLength < size) {
         size = fileLength;
@@ -111,9 +137,11 @@ public class Client {
       }
       outputStream.write(partOfFile);
       fileLength -= size;
+      dataSize += size;
       socketWriter.writeByte(6);
       socketWriter.flush();
     }
+    isNeedStop = true;
     outputStream.close();
   }
 

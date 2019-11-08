@@ -225,6 +225,9 @@ public class Server {
                 leftFileLength);
             writeInSocket(socketWriter,
                 "File " + lastFileName + " successfully received and saved");
+            lastClient = null;
+            lastCommand = "";
+            leftFileLength = 0;
           }
           if (lastCommand.equals("download")) {
             byte[] file = readFile(WORK_DIRECTORY_PATH + lastFileName);
@@ -235,7 +238,11 @@ public class Server {
             if (fileLength != 0) {
               writeFile(socketWriter, socketReader,Arrays.copyOfRange(file, fileLength, file.length));
               writeInSocket(socketWriter, "Command download finished");
+
             }
+            lastClient = null;
+            lastCommand = "";
+            leftFileLength = 0;
 
           }
         }
