@@ -25,18 +25,15 @@ public class Server {
   private DatagramSocket receiveSocket;
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
-  private volatile List<Integer> readedMessageIds;
+  private volatile List<ReadSegment> readedMessageIds;
   private static final String DESTINATION_ADDRESS = "127.0.0.1";
-  private static final int SOURCE_PORT = 5001;
-  private static final int DESTINATION_PORT = 5002;
+  private static final int SOURCE_PORT = 5002;
+  private static final int DESTINATION_PORT = 5001;
   private volatile int maxSendBufferSize;
   private static final int TCP_MESSAGE_SIZE = 1033;
-  private volatile boolean isConnectionIssue;
-  private volatile int count;
   private volatile int dataSize;
   private volatile boolean isNeedStop;
   private volatile String currentCommand;
-  private static final int MIN_SEND_BUFFER_SIZE = 1;
   private volatile boolean isConnectionOpen;
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_server\\";
   private volatile FileOutputStream outputStream;
@@ -75,32 +72,92 @@ public class Server {
     thread.start();
   }
 
-  private void addDataToSendBuffer(byte[] message, byte commandType) throws InterruptedException {
+  private byte[] readFile(String path) throws IOException {
+    return Files.readAllBytes(Paths.get(path));
+  }
+
+  private void addDataToSendBuffer(byte[] message, byte commandType, int index)
+      throws InterruptedException {
     int messageLength = message.length;
     int size = Math.min(messageLength, 1024);
     int from = 0;
     int to = from + size;
-    int index = 1;
     printBitrate();
+//    count = 0;
     while (messageLength != 0) {
-      byte[] temp = Arrays.copyOfRange(message, from, to);
-      while (sendBuffer.size() >= maxSendBufferSize) {
-        Thread.sleep(1);
+      if (sendBuffer.size() < maxSendBufferSize) {
+        System.out.println("MaxSendBufferSize: " + maxSendBufferSize);
+        byte[] temp = Arrays.copyOfRange(message, from, to);
+        while (sendBuffer.size() >= maxSendBufferSize) {
+          Thread.sleep(1);
+        }
+        sendBuffer.add(new BufferElement(index, createMessageHeader(index, commandType, temp)));
+        from += size;
+        messageLength -= size;
+        dataSize += size;
+        if (messageLength < size) {
+          size = messageLength;
+        }
+        to += size;
+        index++;
       }
-      sendBuffer.add(new BufferElement(index, createMessageHeader(index, commandType, temp)));
-      from += size;
-      messageLength -= size;
-      dataSize += size;
-      if (messageLength < size) {
-        size = messageLength;
-      }
-      to += size;
     }
     isNeedStop = true;
   }
 
   private int extractId(byte[] message) {
     return ByteBuffer.wrap(new byte[]{message[0], message[1], message[2], message[3]}).getInt();
+  }
+
+  private void receiveFile(String filePath)
+      throws IOException, InterruptedException {
+    boolean isPresentFileLength = false;
+    int fileLength = 0;
+    while (!isPresentFileLength) {
+      for (int i = 0; i < receiveBuffer.size(); i++) {
+        byte[] message = receiveBuffer.get(i).getMessage();
+        if (message[4] == 5) {
+          isPresentFileLength = true;
+          byte[] messageLengthsBts = Arrays.copyOfRange(message, 5, 9);
+          fileLength = ByteBuffer.wrap(Arrays
+              .copyOfRange(message, 9, 9 + ByteBuffer.wrap(messageLengthsBts).getInt())).getInt();
+          receiveBuffer.removeIf(elem -> elem.getId() == extractId(message));
+          break;
+        }
+      }
+    }
+    int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
+    outputStream = new FileOutputStream(new File(filePath), true);
+    printBitrate();
+    int index = 3;
+    while (fileLength != 0) {
+      if (fileLength < size) {
+        size = fileLength;
+      }
+      boolean isPresentData = false;
+      for (int i = 0; i < receiveBuffer.size(); i++) {
+        if (receiveBuffer.get(i).getId() == index && receiveBuffer.get(i).getMessage()[4] == 4) {
+          byte[] messageLengthsBts = Arrays.copyOfRange(receiveBuffer.get(i).getMessage(), 5, 9);
+          byte[] data = Arrays
+              .copyOfRange(receiveBuffer.get(i).getMessage(), 9,
+                  9 + ByteBuffer.wrap(messageLengthsBts).getInt());
+          final int j = i;
+          outputStream.write(data);
+          receiveBuffer
+              .removeIf(elem -> elem.getId() == extractId(receiveBuffer.get(j).getMessage()));
+          index++;
+          isPresentData = true;
+          break;
+        }
+      }
+      if (!isPresentData) {
+        continue;
+      }
+      fileLength -= size;
+      dataSize += size;
+    }
+    isNeedStop = true;
+    outputStream.close();
   }
 
    /*
@@ -119,14 +176,19 @@ public class Server {
    *  7 - download
    *  8 - upload
    */
+  private void sendFile(String command, String filePath) throws InterruptedException, IOException {
+    addDataToSendBuffer(command.getBytes(), (byte) 8, 1);
+    byte[] file = readFile(filePath);
+    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5, 2);
+    addDataToSendBuffer(file, (byte) 4, 3);
+  }
+
 
   private void receiveMessages() throws IOException, InterruptedException {
     while (isConnectionOpen) {
       byte[] message = new byte[TCP_MESSAGE_SIZE];
       DatagramPacket receive = new DatagramPacket(message, message.length);
-      if (!receiveSocket.isClosed()) {
-        receiveSocket.receive(receive);
-      }
+      receiveSocket.receive(receive);
       System.out.println("Receive bytes: " + Arrays.toString(message));
       if (message[4]
           != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
@@ -134,7 +196,8 @@ public class Server {
         int messageId = extractId(message);
         boolean isContain = false;
         for (int i = 0; i < readedMessageIds.size(); i++) {
-          if (readedMessageIds.get(i) == messageId) {
+          if (readedMessageIds.get(i).getMessageId() == messageId
+              && readedMessageIds.get(i).getType() == message[4]) {
             isContain = true;
             break;
           }
@@ -142,13 +205,13 @@ public class Server {
         if (!isContain) {
           BufferElement elem = new BufferElement(messageId, message);
           receiveBuffer.add(elem);
-          readedMessageIds.add(messageId);
+          readedMessageIds.add(new ReadSegment(messageId, message[4]));
 
         }
-        byte[] emptyData = new byte[1028];
+        byte[] emptyData = new byte[1027];
         DatagramPacket ackPacket = new DatagramPacket(
             concat(ByteBuffer.allocate(4).putInt(messageId).array(),
-                concat(new byte[]{6}, emptyData)), TCP_MESSAGE_SIZE,
+                concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE,
             InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
         sendSocket.send(ackPacket);
       } else {
@@ -157,14 +220,9 @@ public class Server {
         final int messageId = extractId(message);
         for (int i = 0; i < sendBuffer.size(); i++) {
           BufferElement element = sendBuffer.get(i);
-          if (element.getId() == messageId) {
+          if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
             sendBuffer.removeIf(elem -> elem.getId() == messageId);
-            count--;
-//              if (element.getMessage()[4] == 3) {
-//                closeConnection();
-//                clearBuffer();
-//                System.exit(0);
-//              }
+//            count--;
             break;
           }
         }
@@ -194,96 +252,20 @@ public class Server {
     return new String();
   }
 
-  private void controlWindowSize() throws InterruptedException {
-    while (isConnectionOpen) {
-      Thread.sleep(500);
-      if (count == 0) {
-        maxSendBufferSize++;
-      } else {
-        maxSendBufferSize = maxSendBufferSize - Math.abs(count);
-        if (maxSendBufferSize < MIN_SEND_BUFFER_SIZE) {
-          maxSendBufferSize = MIN_SEND_BUFFER_SIZE;
-        }
-      }
-    }
-  }
-
-  private byte[] readFile(String path) throws IOException {
-    return Files.readAllBytes(Paths.get(path));
-  }
-
-  private void sendFile(String fileName) throws InterruptedException, IOException {
-    addDataToSendBuffer("upload".getBytes(), (byte) 8);
-    byte[] file = readFile(WORK_DIRECTORY_PATH + fileName);
-    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5);
-    addDataToSendBuffer(file, (byte) 4);
-  }
-
-
-  private void receiveFile(String filePath)
-      throws IOException, InterruptedException {
-    boolean isPresentFileLength = false;
-    int fileLength = 0;
-    while (!isPresentFileLength) {
-      for (int i = 0; i < receiveBuffer.size(); i++) {
-        byte[] message = receiveBuffer.get(i).getMessage();
-        if (message[4] == 5) {
-          isPresentFileLength = true;
-          byte[] messageLengthsBts = Arrays.copyOfRange(message, 5, 9);
-          fileLength = ByteBuffer.wrap(Arrays
-              .copyOfRange(message, 9, 9 + ByteBuffer.wrap(messageLengthsBts).getInt())).getInt();
-          receiveBuffer.removeIf(elem -> elem.getId() == extractId(message));
-          break;
-        }
-      }
-    }
-    System.out.println("FileLength: " + fileLength);
-    int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
-    System.out.println("FilePath: " + filePath);
-    outputStream = new FileOutputStream(new File(filePath), true);
-    printBitrate();
-    int index = 1;
-    while (fileLength != 0) {
-      if (fileLength < size) {
-        size = fileLength;
-      }
-      boolean isPresentData = false;
-      for (int i = 0; i < receiveBuffer.size(); i++) {
-        if (receiveBuffer.get(i).getId() == index && receiveBuffer.get(i).getMessage()[4] == 4) {
-          byte[] messageLengthsBts = Arrays.copyOfRange(receiveBuffer.get(i).getMessage(), 5, 9);
-          byte[] data = Arrays
-              .copyOfRange(receiveBuffer.get(i).getMessage(), 9,
-                  9 + ByteBuffer.wrap(messageLengthsBts).getInt());
-          System.out.println("Data: " + Arrays.toString(data));
-          outputStream.write(data);
-          receiveBuffer.remove(i);
-          index++;
-          isPresentData = true;
-          break;
-        }
-      }
-      if (!isPresentData) {
-        continue;
-      }
-      fileLength -= size;
-      dataSize += size;
-    }
-    isNeedStop = true;
-    outputStream.close();
-  }
-
   private void monitorSendBuffer() throws IOException, InterruptedException {
     while (isConnectionOpen) {
-      for (int i = 0; i < sendBuffer.size(); i++) {
-        BufferElement element = sendBuffer.get(i);
-        if (!element.isWaitAck() && count <= maxSendBufferSize) {
-          System.out.println("Send bytes: " + Arrays.toString(element.getMessage()));
-          DatagramPacket packet = new DatagramPacket(element.getMessage(),
-              element.getMessage().length,
-              InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
-          sendSocket.send(packet);
-          count++;
-          element.waitAck();
+      synchronized (sendBuffer) {
+        for (int i = 0; i < sendBuffer.size(); i++) {
+          BufferElement element = sendBuffer.get(i);
+          if (!element.isWaitAck()) {
+            System.out.println("Send bytes: " + Arrays.toString(element.getMessage()));
+            System.out.println("Send buffer size: " + sendBuffer.size());
+            DatagramPacket packet = new DatagramPacket(element.getMessage(),
+                element.getMessage().length,
+                InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
+            sendSocket.send(packet);
+            element.waitAck();
+          }
         }
       }
       Thread.sleep(1);
@@ -297,18 +279,9 @@ public class Server {
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
     receiveSocket = new DatagramSocket(SOURCE_PORT);
-    count = 0;
     currentCommand = "";
-    maxSendBufferSize = 3;
+    maxSendBufferSize = 4;
     isConnectionOpen = true;
-    Thread receiveBufferMonitorThread = new Thread(() -> {
-      try {
-        controlWindowSize();
-      } catch (InterruptedException e) {
-        // TODO Auto-generated catch block
-        e.printStackTrace();
-      }
-    });
     Thread sendBufferMonitorThread = new Thread(() -> {
       try {
         monitorSendBuffer();
@@ -331,7 +304,6 @@ public class Server {
         e.printStackTrace();
       }
     });
-    receiveBufferMonitorThread.start();
     sendBufferMonitorThread.start();
     receiveMessagesThread.start();
   }
@@ -359,24 +331,24 @@ public class Server {
       String[] words = message.split("\\s");
       switch (words[0].toLowerCase()) {
         case "echo":
-          addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1);
+          addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1, 1);
           currentCommand = "echo";
           clearBuffer();
           break;
         case "time":
-          addDataToSendBuffer(executeTime().getBytes(), (byte) 2);
+          addDataToSendBuffer(executeTime().getBytes(), (byte) 2, 1);
           currentCommand = "time";
           clearBuffer();
           break;
         case "upload":
           clearBuffer();
           receiveFile(WORK_DIRECTORY_PATH + words[1]);
-          addDataToSendBuffer("File successfully received".getBytes(), (byte) 8);
+          addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1);
           currentCommand = "upload";
           clearBuffer();
           break;
         case "exit":
-          addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3);
+          addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1);
           while (sendBuffer.size() != 0) {
             Thread.sleep(1);
           }

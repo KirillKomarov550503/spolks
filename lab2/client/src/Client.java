@@ -22,10 +22,10 @@ public class Client {
   private DatagramSocket receiveSocket;
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
-  private volatile List<Integer> readedMessageIds;
+  private volatile List<ReadSegment> readedMessageIds;
   private static final String DESTINATION_ADDRESS = "127.0.0.1";
-  private static final int SOURCE_PORT = 5002;
-  private static final int DESTINATION_PORT = 5001;
+  private static final int SOURCE_PORT = 5001;
+  private static final int DESTINATION_PORT = 5002;
   private volatile int maxSendBufferSize;
   private static final int TCP_MESSAGE_SIZE = 1033;
   private volatile boolean isConnectionIssue;
@@ -76,19 +76,21 @@ public class Client {
     return Files.readAllBytes(Paths.get(path));
   }
 
-  private void addDataToSendBuffer(byte[] message, byte commandType) throws InterruptedException {
+  private void addDataToSendBuffer(byte[] message, byte commandType, int index)
+      throws InterruptedException {
     int messageLength = message.length;
     int size = Math.min(messageLength, 1024);
     int from = 0;
     int to = from + size;
-    int index = 1;
     printBitrate();
 //    count = 0;
     while (messageLength != 0) {
-      if (sendBuffer.size() <= maxSendBufferSize) {
+      if (sendBuffer.size() < maxSendBufferSize) {
         System.out.println("MaxSendBufferSize: " + maxSendBufferSize);
         byte[] temp = Arrays.copyOfRange(message, from, to);
-
+        while (sendBuffer.size() >= maxSendBufferSize) {
+          Thread.sleep(1);
+        }
         sendBuffer.add(new BufferElement(index, createMessageHeader(index, commandType, temp)));
         from += size;
         messageLength -= size;
@@ -97,7 +99,7 @@ public class Client {
           size = messageLength;
         }
         to += size;
-        index ++;
+        index++;
       }
     }
     isNeedStop = true;
@@ -175,10 +177,10 @@ public class Client {
    *  8 - upload
    */
   private void sendFile(String command, String filePath) throws InterruptedException, IOException {
-    addDataToSendBuffer(command.getBytes(), (byte) 8);
+    addDataToSendBuffer(command.getBytes(), (byte) 8, 1);
     byte[] file = readFile(filePath);
-    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5);
-    addDataToSendBuffer(file, (byte) 4);
+    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5, 2);
+    addDataToSendBuffer(file, (byte) 4, 3);
   }
 
 
@@ -194,7 +196,8 @@ public class Client {
         int messageId = extractId(message);
         boolean isContain = false;
         for (int i = 0; i < readedMessageIds.size(); i++) {
-          if (readedMessageIds.get(i) == messageId) {
+          if (readedMessageIds.get(i).getMessageId() == messageId
+              && readedMessageIds.get(i).getType() == message[4]) {
             isContain = true;
             break;
           }
@@ -202,13 +205,12 @@ public class Client {
         if (!isContain) {
           BufferElement elem = new BufferElement(messageId, message);
           receiveBuffer.add(elem);
-          readedMessageIds.add(messageId);
-
+          readedMessageIds.add(new ReadSegment(messageId, message[4]));
         }
-        byte[] emptyData = new byte[1028];
+        byte[] emptyData = new byte[1027];
         DatagramPacket ackPacket = new DatagramPacket(
             concat(ByteBuffer.allocate(4).putInt(messageId).array(),
-                concat(new byte[]{6}, emptyData)), TCP_MESSAGE_SIZE,
+                concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE,
             InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
         sendSocket.send(ackPacket);
       } else {
@@ -217,9 +219,9 @@ public class Client {
         final int messageId = extractId(message);
         for (int i = 0; i < sendBuffer.size(); i++) {
           BufferElement element = sendBuffer.get(i);
-          if (element.getId() == messageId) {
+          if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
             sendBuffer.removeIf(elem -> elem.getId() == messageId);
-            count--;
+//            count--;
             break;
           }
         }
@@ -249,22 +251,6 @@ public class Client {
     return new String();
   }
 
-  private void controlWindowSize() throws InterruptedException {
-    while (true) {
-      Thread.sleep(500);
-      if (count == 0) {
-        maxSendBufferSize++;
-      } else {
-        if (count > 0) {
-          maxSendBufferSize = maxSendBufferSize - Math.abs(count);
-          if (maxSendBufferSize < MIN_SEND_BUFFER_SIZE) {
-            maxSendBufferSize = MIN_SEND_BUFFER_SIZE;
-          }
-        }
-      }
-    }
-  }
-
   private void monitorSendBuffer() throws IOException, InterruptedException {
     while (isConnectionOpen) {
       synchronized (sendBuffer) {
@@ -272,11 +258,11 @@ public class Client {
           BufferElement element = sendBuffer.get(i);
           if (!element.isWaitAck()) {
             System.out.println("Send bytes: " + Arrays.toString(element.getMessage()));
+            System.out.println("Send buffer size: " + sendBuffer.size());
             DatagramPacket packet = new DatagramPacket(element.getMessage(),
                 element.getMessage().length,
                 InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
             sendSocket.send(packet);
-            count++;
             element.waitAck();
           }
         }
@@ -293,7 +279,7 @@ public class Client {
   }
 
   private void execute(String message, byte type) throws InterruptedException {
-    addDataToSendBuffer(message.getBytes(), type);
+    addDataToSendBuffer(message.getBytes(), type, 1);
     switch (type) {
       case 1:
         currentCommand = "echo";
@@ -355,14 +341,6 @@ public class Client {
     currentCommand = "";
     maxSendBufferSize = 3;
     isConnectionOpen = true;
-    Thread receiveBufferMonitorThread = new Thread(() -> {
-      try {
-        controlWindowSize();
-      } catch (InterruptedException e) {
-        // TODO Auto-generated catch block
-        e.printStackTrace();
-      }
-    });
     Thread sendBufferMonitorThread = new Thread(() -> {
       try {
         monitorSendBuffer();
@@ -385,7 +363,6 @@ public class Client {
         e.printStackTrace();
       }
     });
-    receiveBufferMonitorThread.start();
     sendBufferMonitorThread.start();
     receiveMessagesThread.start();
   }

@@ -13,15 +13,7 @@ public class BufferElement {
     this.id = id;
     this.message = message;
     isWaitAck = false;
-    this.thread = new Thread(() -> {
-      try {
-        isWaitAck = true;
-        Thread.sleep(50);
-        isWaitAck = false;
-      } catch (InterruptedException e) {
-        e.printStackTrace();
-      }
-    });
+
   }
 
   public int getId() {
@@ -40,8 +32,16 @@ public class BufferElement {
 
 
   public void waitAck() {
-
-    this.thread.start();
+    thread = new Thread(() -> {
+      try {
+        isWaitAck = true;
+        Thread.sleep(50);
+        isWaitAck = false;
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    });
+    thread.start();
   }
 
   public boolean isWaitAck() {
