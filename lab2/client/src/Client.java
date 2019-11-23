@@ -23,7 +23,7 @@ public class Client {
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
   private volatile List<ReadSegment> readedMessageIds;
-  private static final String DESTINATION_ADDRESS = "127.0.0.1";
+  private static final String DESTINATION_ADDRESS = "192.168.100.54";
   private static final int SOURCE_PORT = 5001;
   private static final int DESTINATION_PORT = 5002;
   private volatile int maxSendBufferSize;
@@ -86,7 +86,6 @@ public class Client {
 //    count = 0;
     while (messageLength != 0) {
       if (sendBuffer.size() < maxSendBufferSize) {
-        System.out.println("MaxSendBufferSize: " + maxSendBufferSize);
         byte[] temp = Arrays.copyOfRange(message, from, to);
         while (sendBuffer.size() >= maxSendBufferSize) {
           Thread.sleep(1);
@@ -189,7 +188,6 @@ public class Client {
       byte[] message = new byte[TCP_MESSAGE_SIZE];
       DatagramPacket receive = new DatagramPacket(message, message.length);
       receiveSocket.receive(receive);
-      System.out.println("Receive bytes: " + Arrays.toString(message));
       if (message[4]
           != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
         // Если пакет мы прежде не получали, то добавляем его в буфер чтения и в буфер прочитанных айдишников сообщений
@@ -257,8 +255,6 @@ public class Client {
         for (int i = 0; i < sendBuffer.size(); i++) {
           BufferElement element = sendBuffer.get(i);
           if (!element.isWaitAck()) {
-            System.out.println("Send bytes: " + Arrays.toString(element.getMessage()));
-            System.out.println("Send buffer size: " + sendBuffer.size());
             DatagramPacket packet = new DatagramPacket(element.getMessage(),
                 element.getMessage().length,
                 InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
@@ -302,20 +298,20 @@ public class Client {
       String[] words = message.split("\\s");
       switch (words[0].toLowerCase()) {
         case "echo":
-          execute(message, (byte) 1);
           clearBuffer();
+          execute(message, (byte) 1);
           break;
         case "time":
-          execute(message, (byte) 2);
           clearBuffer();
+          execute(message, (byte) 2);
           break;
         case "upload":
+          clearBuffer();
           sendFile(message, WORK_DIRECTORY_PATH + words[1]);
           System.out.println("Response from server: " + read());
-          ;
-          clearBuffer();
           break;
         case "exit":
+          clearBuffer();
           execute(message, (byte) 3);
           System.exit(0);
           break;

@@ -1,3 +1,5 @@
+import java.util.Arrays;
+
 public class BufferElement {
 
   private int id;
@@ -35,7 +37,7 @@ public class BufferElement {
     thread = new Thread(() -> {
       try {
         isWaitAck = true;
-        Thread.sleep(50);
+        Thread.sleep(150);
         isWaitAck = false;
       } catch (InterruptedException e) {
         e.printStackTrace();
@@ -50,5 +52,15 @@ public class BufferElement {
 
   public void setWaitAck(boolean waitAck) {
     isWaitAck = waitAck;
+  }
+
+  @Override
+  public String toString() {
+    return "BufferElement{" +
+        "id=" + id +
+        ", message=" + Arrays.toString(message) +
+        ", thread=" + thread +
+        ", isWaitAck=" + isWaitAck +
+        '}';
   }
 }
