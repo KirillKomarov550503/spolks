@@ -76,7 +76,7 @@ public class Server {
     return Files.readAllBytes(Paths.get(path));
   }
 
-  private void addDataToSendBuffer(byte[] message, byte commandType, int index)
+  private int addDataToSendBuffer(byte[] message, byte commandType, int index)
       throws InterruptedException {
     int messageLength = message.length;
     int size = Math.min(messageLength, 1024);
@@ -86,7 +86,7 @@ public class Server {
 //    count = 0;
     while (messageLength != 0) {
       if (sendBuffer.size() < maxSendBufferSize) {
-        System.out.println("MaxSendBufferSize: " + maxSendBufferSize);
+
         byte[] temp = Arrays.copyOfRange(message, from, to);
         while (sendBuffer.size() >= maxSendBufferSize) {
           Thread.sleep(1);
@@ -103,6 +103,7 @@ public class Server {
       }
     }
     isNeedStop = true;
+    return index;
   }
 
   private int extractId(byte[] message) {
@@ -176,11 +177,10 @@ public class Server {
    *  7 - download
    *  8 - upload
    */
-  private void sendFile(String command, String filePath) throws InterruptedException, IOException {
-    addDataToSendBuffer(command.getBytes(), (byte) 8, 1);
+  private int sendFile(String filePath) throws InterruptedException, IOException {
     byte[] file = readFile(filePath);
-    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5, 2);
-    addDataToSendBuffer(file, (byte) 4, 3);
+    addDataToSendBuffer(ByteBuffer.allocate(4).putInt(file.length).array(), (byte) 5, 1);
+    return addDataToSendBuffer(file, (byte) 4, 2);
   }
 
 
@@ -189,7 +189,6 @@ public class Server {
       byte[] message = new byte[TCP_MESSAGE_SIZE];
       DatagramPacket receive = new DatagramPacket(message, message.length);
       receiveSocket.receive(receive);
-      System.out.println("Receive bytes: " + Arrays.toString(message));
       if (message[4]
           != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
         // Если пакет мы прежде не получали, то добавляем его в буфер чтения и в буфер прочитанных айдишников сообщений
@@ -258,13 +257,12 @@ public class Server {
         for (int i = 0; i < sendBuffer.size(); i++) {
           BufferElement element = sendBuffer.get(i);
           if (!element.isWaitAck()) {
-            System.out.println("Send bytes: " + Arrays.toString(element.getMessage()));
-            System.out.println("Send buffer size: " + sendBuffer.size());
             DatagramPacket packet = new DatagramPacket(element.getMessage(),
                 element.getMessage().length,
                 InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
             sendSocket.send(packet);
             element.waitAck();
+
           }
         }
       }
@@ -278,7 +276,9 @@ public class Server {
     receiveBuffer = Collections.synchronizedList(new ArrayList<>());
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
-    receiveSocket = new DatagramSocket(SOURCE_PORT);
+    sendSocket =
+        receiveSocket = new DatagramSocket(SOURCE_PORT);
+
     currentCommand = "";
     maxSendBufferSize = 4;
     isConnectionOpen = true;
@@ -345,6 +345,14 @@ public class Server {
           receiveFile(WORK_DIRECTORY_PATH + words[1]);
           addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1);
           currentCommand = "upload";
+          clearBuffer();
+          break;
+        case "download":
+          clearBuffer();
+          int index = sendFile(WORK_DIRECTORY_PATH + words[1]);
+          clearBuffer();
+          addDataToSendBuffer("File successfully delivered".getBytes(), (byte) 7, index);
+          currentCommand = "download";
           clearBuffer();
           break;
         case "exit":

@@ -83,7 +83,6 @@ public class Client {
     int from = 0;
     int to = from + size;
     printBitrate();
-//    count = 0;
     while (messageLength != 0) {
       if (sendBuffer.size() < maxSendBufferSize) {
         byte[] temp = Arrays.copyOfRange(message, from, to);
@@ -108,7 +107,7 @@ public class Client {
     return ByteBuffer.wrap(new byte[]{message[0], message[1], message[2], message[3]}).getInt();
   }
 
-  private void receiveFile(String filePath)
+  private int receiveFile(String filePath)
       throws IOException, InterruptedException {
     boolean isPresentFileLength = false;
     int fileLength = 0;
@@ -128,7 +127,7 @@ public class Client {
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     outputStream = new FileOutputStream(new File(filePath), true);
     printBitrate();
-    int index = 1;
+    int index = 2;
     while (fileLength != 0) {
       if (fileLength < size) {
         size = fileLength;
@@ -157,6 +156,7 @@ public class Client {
     }
     isNeedStop = true;
     outputStream.close();
+    return index;
   }
 
    /*
@@ -182,6 +182,11 @@ public class Client {
     addDataToSendBuffer(file, (byte) 4, 3);
   }
 
+  private int prepareDownload(String command, String filePath)
+      throws InterruptedException, IOException {
+    addDataToSendBuffer(command.getBytes(), (byte) 7, 1);
+    return receiveFile(filePath);
+  }
 
   private void receiveMessages() throws IOException, InterruptedException {
     while (isConnectionOpen) {
@@ -310,6 +315,11 @@ public class Client {
           sendFile(message, WORK_DIRECTORY_PATH + words[1]);
           System.out.println("Response from server: " + read());
           break;
+        case "download":
+          clearBuffer();
+          prepareDownload(message, WORK_DIRECTORY_PATH + words[1]);
+          System.out.println("Response from server: " + read());
+          break;
         case "exit":
           clearBuffer();
           execute(message, (byte) 3);
@@ -332,7 +342,9 @@ public class Client {
     receiveBuffer = Collections.synchronizedList(new ArrayList<>());
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
+//    sendSocket.setSoTimeout(10000);
     receiveSocket = new DatagramSocket(SOURCE_PORT);
+//    receiveSocket.setSoTimeout(10000);
     count = 0;
     currentCommand = "";
     maxSendBufferSize = 3;
