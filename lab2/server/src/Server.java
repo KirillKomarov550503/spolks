@@ -38,6 +38,9 @@ public class Server {
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_server\\";
   private volatile FileOutputStream outputStream;
   private static final int BYTE_FOR_READ_WRITE = 1024;
+  private volatile int attempts = 0;
+  private static final int soTimeout = 20000;
+  private volatile int count;
 
   private byte[] concat(byte[] array1, byte[] array2) {
     byte[] result = new byte[array1.length + array2.length];
@@ -84,7 +87,7 @@ public class Server {
     int to = from + size;
     printBitrate();
 //    count = 0;
-    while (messageLength != 0) {
+    while (messageLength != 0 && isConnectionOpen) {
       if (sendBuffer.size() < maxSendBufferSize) {
 
         byte[] temp = Arrays.copyOfRange(message, from, to);
@@ -114,7 +117,7 @@ public class Server {
       throws IOException, InterruptedException {
     boolean isPresentFileLength = false;
     int fileLength = 0;
-    while (!isPresentFileLength) {
+    while (!isPresentFileLength && isConnectionOpen) {
       for (int i = 0; i < receiveBuffer.size(); i++) {
         byte[] message = receiveBuffer.get(i).getMessage();
         if (message[4] == 5) {
@@ -131,7 +134,7 @@ public class Server {
     outputStream = new FileOutputStream(new File(filePath), true);
     printBitrate();
     int index = 3;
-    while (fileLength != 0) {
+    while (fileLength != 0 && isConnectionOpen) {
       if (fileLength < size) {
         size = fileLength;
       }
@@ -185,44 +188,48 @@ public class Server {
 
 
   private void receiveMessages() throws IOException, InterruptedException {
-    while (isConnectionOpen) {
-      byte[] message = new byte[TCP_MESSAGE_SIZE];
-      DatagramPacket receive = new DatagramPacket(message, message.length);
-      receiveSocket.receive(receive);
-      if (message[4]
-          != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
-        // Если пакет мы прежде не получали, то добавляем его в буфер чтения и в буфер прочитанных айдишников сообщений
-        int messageId = extractId(message);
-        boolean isContain = false;
-        for (int i = 0; i < readedMessageIds.size(); i++) {
-          if (readedMessageIds.get(i).getMessageId() == messageId
-              && readedMessageIds.get(i).getType() == message[4]) {
-            isContain = true;
-            break;
+    while (true) {
+      if (isConnectionOpen) {
+        byte[] message = new byte[TCP_MESSAGE_SIZE];
+        DatagramPacket receive = new DatagramPacket(message, message.length);
+        receiveSocket.receive(receive);
+        count = 0;
+        attempts = 0;
+        if (message[4]
+            != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
+          // Если пакет мы прежде не получали, то добавляем его в буфер чтения и в буфер прочитанных айдишников сообщений
+          int messageId = extractId(message);
+          boolean isContain = false;
+          for (int i = 0; i < readedMessageIds.size(); i++) {
+            if (readedMessageIds.get(i).getMessageId() == messageId
+                && readedMessageIds.get(i).getType() == message[4]) {
+              isContain = true;
+              break;
+            }
           }
-        }
-        if (!isContain) {
-          BufferElement elem = new BufferElement(messageId, message);
-          receiveBuffer.add(elem);
-          readedMessageIds.add(new ReadSegment(messageId, message[4]));
+          if (!isContain) {
+            BufferElement elem = new BufferElement(messageId, message);
+            receiveBuffer.add(elem);
+            readedMessageIds.add(new ReadSegment(messageId, message[4]));
 
-        }
-        byte[] emptyData = new byte[1027];
-        DatagramPacket ackPacket = new DatagramPacket(
-            concat(ByteBuffer.allocate(4).putInt(messageId).array(),
-                concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE,
-            InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
-        sendSocket.send(ackPacket);
-      } else {
-        //со стороны клиента. Если получили ACK,
-        // то удаляем сообщение из буфера отправки.
-        final int messageId = extractId(message);
-        for (int i = 0; i < sendBuffer.size(); i++) {
-          BufferElement element = sendBuffer.get(i);
-          if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
-            sendBuffer.removeIf(elem -> elem.getId() == messageId);
-//            count--;
-            break;
+          }
+          byte[] emptyData = new byte[1027];
+          DatagramPacket ackPacket = new DatagramPacket(
+              concat(ByteBuffer.allocate(4).putInt(messageId).array(),
+                  concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE,
+              InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
+          sendSocket.send(ackPacket);
+        } else {
+          //со стороны клиента. Если получили ACK,
+          // то удаляем сообщение из буфера отправки.
+          final int messageId = extractId(message);
+          for (int i = 0; i < sendBuffer.size(); i++) {
+            BufferElement element = sendBuffer.get(i);
+            if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
+              sendBuffer.removeIf(elem -> elem.getId() == messageId);
+//                count--;
+              break;
+            }
           }
         }
       }
@@ -252,17 +259,19 @@ public class Server {
   }
 
   private void monitorSendBuffer() throws IOException, InterruptedException {
-    while (isConnectionOpen) {
-      synchronized (sendBuffer) {
-        for (int i = 0; i < sendBuffer.size(); i++) {
-          BufferElement element = sendBuffer.get(i);
-          if (!element.isWaitAck()) {
-            DatagramPacket packet = new DatagramPacket(element.getMessage(),
-                element.getMessage().length,
-                InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
-            sendSocket.send(packet);
-            element.waitAck();
+    while (true) {
+      if (isConnectionOpen) {
+        synchronized (sendBuffer) {
+          for (int i = 0; i < sendBuffer.size(); i++) {
+            BufferElement element = sendBuffer.get(i);
+            if (!element.isWaitAck()) {
+              DatagramPacket packet = new DatagramPacket(element.getMessage(),
+                  element.getMessage().length,
+                  InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
+              sendSocket.send(packet);
+              element.waitAck();
 
+            }
           }
         }
       }
@@ -277,7 +286,6 @@ public class Server {
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
     receiveSocket = new DatagramSocket(SOURCE_PORT);
-
     currentCommand = "";
     maxSendBufferSize = 4;
     isConnectionOpen = true;
@@ -303,8 +311,17 @@ public class Server {
         e.printStackTrace();
       }
     });
+    Thread detectSoTimeoutThread = new Thread(()->  {
+      try {
+        detectSocketTimeout();
+      } catch (InterruptedException e) {
+        // TODO Auto-generated catch block
+        e.printStackTrace();
+      }
+    });
     sendBufferMonitorThread.start();
     receiveMessagesThread.start();
+    detectSoTimeoutThread.start();
   }
 
   public void closeConnection() {
@@ -323,6 +340,34 @@ public class Server {
     return dateFormat.format(date);
   }
 
+  private void detectSocketTimeout() throws InterruptedException{
+    while (true) {
+      if(attempts < 3) {
+        if(count >= soTimeout) {
+          attempts++;
+          count = 0;
+          System.err.println("Detect connection issue");
+        }
+      } else {
+        System.err.println("Server detect connection issue 3 times. Stop all commands");
+        isConnectionOpen = false;
+        isNeedStop = true;
+        clearBuffer();
+        sendBuffer.clear();
+        count = 0;
+        currentCommand = "";
+        maxSendBufferSize = 3;
+        attempts = 0;
+        isConnectionOpen = true;
+        isConnectionOpen = true;
+      }
+      if(!currentCommand.isEmpty()) {
+        count+=1000;
+      }
+      Thread.sleep(1000);
+    }
+  }
+
   public void run() throws InterruptedException, IOException {
     while (!currentCommand.equals("exit")) {
       String message = read();
@@ -330,37 +375,42 @@ public class Server {
       String[] words = message.split("\\s");
       switch (words[0].toLowerCase()) {
         case "echo":
+          currentCommand = words[0].toLowerCase();
           addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1, 1);
-          currentCommand = "echo";
           clearBuffer();
+          currentCommand = "";
           break;
         case "time":
+          currentCommand = words[0].toLowerCase();
           addDataToSendBuffer(executeTime().getBytes(), (byte) 2, 1);
-          currentCommand = "time";
           clearBuffer();
+          currentCommand = "";
           break;
         case "upload":
+          currentCommand = words[0].toLowerCase();
           clearBuffer();
           receiveFile(WORK_DIRECTORY_PATH + words[1]);
           addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1);
-          currentCommand = "upload";
           clearBuffer();
+          currentCommand = "";
           break;
         case "download":
+          currentCommand = words[0].toLowerCase();
           clearBuffer();
           int index = sendFile(WORK_DIRECTORY_PATH + words[1]);
           clearBuffer();
           addDataToSendBuffer("File successfully delivered".getBytes(), (byte) 7, index);
-          currentCommand = "download";
           clearBuffer();
+          currentCommand = "";
           break;
         case "exit":
+          currentCommand = words[0].toLowerCase();
           addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1);
           while (sendBuffer.size() != 0) {
             Thread.sleep(1);
           }
           System.exit(0);
-          currentCommand = "exit";
+          currentCommand = "";
           break;
       }
     }
