@@ -342,9 +342,9 @@ public class Client {
     receiveBuffer = Collections.synchronizedList(new ArrayList<>());
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
-//    sendSocket.setSoTimeout(10000);
+    sendSocket.setSoTimeout(10000);
     receiveSocket = new DatagramSocket(SOURCE_PORT);
-//    receiveSocket.setSoTimeout(10000);
+    receiveSocket.setSoTimeout(10000);
     count = 0;
     currentCommand = "";
     maxSendBufferSize = 3;

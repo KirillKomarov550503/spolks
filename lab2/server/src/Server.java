@@ -276,8 +276,7 @@ public class Server {
     receiveBuffer = Collections.synchronizedList(new ArrayList<>());
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     sendSocket = new DatagramSocket();
-    sendSocket =
-        receiveSocket = new DatagramSocket(SOURCE_PORT);
+    receiveSocket = new DatagramSocket(SOURCE_PORT);
 
     currentCommand = "";
     maxSendBufferSize = 4;
