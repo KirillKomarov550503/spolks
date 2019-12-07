@@ -19,12 +19,11 @@ import java.util.Scanner;
 
 public class Client {
 
-  private DatagramSocket sendSocket;
-  private DatagramSocket receiveSocket;
+  private DatagramSocket socket;
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
   private volatile List<ReadSegment> readedMessageIds;
-  private static final String DESTINATION_ADDRESS = "192.168.43.90";
+  private static final String DESTINATION_ADDRESS = "127.0.0.1";
   private static final int SOURCE_PORT = 5001;
   private static final int DESTINATION_PORT = 5002;
   private volatile int maxSendBufferSize;
@@ -197,7 +196,7 @@ public class Client {
       if (isConnectionOpen) {
         byte[] message = new byte[TCP_MESSAGE_SIZE];
         DatagramPacket receive = new DatagramPacket(message, message.length);
-        receiveSocket.receive(receive);
+        socket.receive(receive);
         count = 0;
         attempts = 0;
         if (message[4]
@@ -222,7 +221,7 @@ public class Client {
               concat(ByteBuffer.allocate(4).putInt(messageId).array(),
                   concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE,
               InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
-          sendSocket.send(ackPacket);
+          socket.send(ackPacket);
         } else {
           //со стороны клиента. Если получили ACK,
           // то удаляем сообщение из буфера отправки.
@@ -272,7 +271,7 @@ public class Client {
               DatagramPacket packet = new DatagramPacket(element.getMessage(),
                   element.getMessage().length,
                   InetAddress.getByName(DESTINATION_ADDRESS), DESTINATION_PORT);
-              sendSocket.send(packet);
+              socket.send(packet);
               element.waitAck();
             }
           }
@@ -284,8 +283,7 @@ public class Client {
   }
 
   public void closeConnection() {
-    sendSocket.close();
-    receiveSocket.close();
+    socket.close();
     System.out.println("Close connection");
   }
 
@@ -347,8 +345,7 @@ public class Client {
           break;
       }
     }
-    sendSocket.close();
-    receiveSocket.close();
+    socket.close();
     clearBuffer();
     System.out.println("Close connection");
     isConnectionOpen = false;
@@ -385,8 +382,7 @@ public class Client {
     sendBuffer = Collections.synchronizedList(new ArrayList<>());
     receiveBuffer = Collections.synchronizedList(new ArrayList<>());
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
-    sendSocket = new DatagramSocket();
-    receiveSocket = new DatagramSocket(SOURCE_PORT);
+    socket = new DatagramSocket(SOURCE_PORT);
     count = 0;
     currentCommand = "";
     maxSendBufferSize = 3;
