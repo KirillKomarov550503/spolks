@@ -9,7 +9,6 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.DateFormat;
-import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -77,7 +76,7 @@ public class Server {
             }
             addToBufferNewElement(client);
             if (client.getMessageLength() == 0) {
-              clearBuffer();
+              clearBuffer(client);
               clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
             }
             isNeedStop = true;
@@ -97,13 +96,12 @@ public class Server {
             }
             addToBufferNewElement(client);
             if (client.getMessageLength() == 0) {
-              clearBuffer();
+              clearBuffer(client);
               clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
             }
             isNeedStop = true;
             break;
           case "upload":
-//            clearBuffer();
             if (!client.isPresentFileLength()) {
               client.setFileLength(0);
               for (int i = 0; i < receiveBuffer.size(); i++) {
@@ -170,7 +168,7 @@ public class Server {
                   client.setIndex(1);
                   client.setCommandType((byte) 8);
                   addToBufferNewElement(client);
-                  clearBuffer();
+                  clearBuffer(client);
                   client.getOutputStream().close();
                   clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                 }
@@ -181,7 +179,7 @@ public class Server {
             break;
           case "download":
             if (!client.isInitialComplete()) {
-              clearBuffer();
+              clearBuffer(client);
               byte[] file = readFile(WORK_DIRECTORY_PATH + words[1]);
               client.setMessage(ByteBuffer.allocate(4).putInt(file.length).array());
               client.setMessageLength(client.getMessage().length);
@@ -206,7 +204,7 @@ public class Server {
               addToBufferNewElement(client);
             }
             if (client.getMessageLength() == 0 || client.isFinalStep()) {
-              clearBuffer();
+              clearBuffer(client);
               client.setFinalStep(true);
               client.setMessage("File successfully delivered".getBytes());
               client.setCommandType((byte) 7);
@@ -220,7 +218,7 @@ public class Server {
                 continue;
               }
               clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
-              clearBuffer();
+              clearBuffer(client);
             }
             isNeedStop = true;
             break;
@@ -308,7 +306,8 @@ public class Server {
           boolean isContain = false;
           for (int i = 0; i < readedMessageIds.size(); i++) {
             if (readedMessageIds.get(i).getMessageId() == messageId
-                && readedMessageIds.get(i).getType() == message[4]) {
+                && readedMessageIds.get(i).getType() == message[4]
+                && readedMessageIds.get(i).getClientId().equals(extractClientId(message))) {
               isContain = true;
               break;
             }
@@ -316,6 +315,7 @@ public class Server {
           if (!isContain) {
             BufferElement elem = new BufferElement(messageId, message, receive.getSocketAddress());
             receiveBuffer.add(elem);
+            readedMessageIds.add(new ReadSegment(messageId, message[4], extractClientId(message)));
 
             if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
                 || message[4] == 8) {
@@ -346,7 +346,6 @@ public class Server {
             BufferElement element = sendBuffer.get(i);
             if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
               sendBuffer.removeIf(elem -> elem.getId() == messageId);
-//                count--;
               break;
             }
           }
@@ -356,9 +355,11 @@ public class Server {
     }
   }
 
-  private void clearBuffer() {
-    receiveBuffer.clear();
-    readedMessageIds.clear();
+  private void clearBuffer(Client client) {
+    receiveBuffer.removeIf(
+        bufferElement -> extractClientId(bufferElement.getMessage()).equals(client.getClientId()));
+    readedMessageIds
+        .removeIf(readSegment -> readSegment.getClientId().equals(client.getClientId()));
   }
 
   private String read() throws InterruptedException {
@@ -468,7 +469,8 @@ public class Server {
         System.err.println("Server detect connection issue 3 times. Stop all commands");
         isConnectionOpen = false;
         isNeedStop = true;
-        clearBuffer();
+        readedMessageIds.clear();
+        receiveBuffer.clear();
         sendBuffer.clear();
         count = 0;
         maxSendBufferSize = 3;
