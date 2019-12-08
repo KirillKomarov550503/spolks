@@ -24,17 +24,13 @@ public class Server {
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
   private volatile List<ReadSegment> readedMessageIds;
-  private static final String DESTINATION_ADDRESS = "127.0.0.1";
   private static final int SOURCE_PORT = 5002;
-  private static final int DESTINATION_PORT = 5001;
   private volatile int maxSendBufferSize;
   private static final int TCP_MESSAGE_SIZE = 1043;
   private volatile int dataSize;
   private volatile boolean isNeedStop;
-  private volatile String currentCommand;
   private volatile boolean isConnectionOpen;
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_server\\";
-  private volatile FileOutputStream outputStream;
   private static final int BYTE_FOR_READ_WRITE = 1024;
   private volatile int attempts = 0;
   private static final int soTimeout = 20000;
@@ -52,26 +48,6 @@ public class Server {
     byte[] indexBts = ByteBuffer.allocate(4).putInt(index).array();
     byte[] lengthBts = ByteBuffer.allocate(4).putInt(message.length).array();
     return concat(concat(indexBts, new byte[]{messageType}), concat(lengthBts, message));
-  }
-
-  private void printBitrate() {
-    isNeedStop = false;
-    dataSize = 0;
-    Thread thread = new Thread(() -> {
-      while (!isNeedStop) {
-        dataSize = 0;
-        try {
-          Thread.sleep(1000);
-          DecimalFormat decimalFormat = new DecimalFormat("#.0#");
-          System.out.println(
-              String.format("Bitrate %s (KB/s)", (decimalFormat.format(dataSize / 1000.0))));
-        } catch (InterruptedException e) {
-          e.printStackTrace();
-        }
-
-      }
-    });
-    thread.start();
   }
 
   private byte[] readFile(String path) throws IOException {
@@ -95,7 +71,6 @@ public class Server {
               client.setSize(size);
               client.setFrom(0);
               client.setTo(size);
-              printBitrate();
               client.setInitialComplete(true);
               client.setIndex(1);
               client.setCommandType((byte) 1);
@@ -116,7 +91,6 @@ public class Server {
               client.setSize(size);
               client.setFrom(0);
               client.setTo(size);
-              printBitrate();
               client.setInitialComplete(true);
               client.setIndex(1);
               client.setCommandType((byte) 2);
@@ -129,7 +103,6 @@ public class Server {
             isNeedStop = true;
             break;
           case "upload":
-            currentCommand = words[0].toLowerCase();
 //            clearBuffer();
             if (!client.isPresentFileLength()) {
               client.setFileLength(0);
@@ -152,11 +125,11 @@ public class Server {
               if (!client.isInitialComplete()) {
                 int size = Math.min(client.getFileLength(), BYTE_FOR_READ_WRITE);
                 client.setSize(size);
-                client.setOutputStream(new FileOutputStream(new File(WORK_DIRECTORY_PATH + words[1]), true));
+                client.setOutputStream(
+                    new FileOutputStream(new File(WORK_DIRECTORY_PATH + words[1]), true));
                 client.setIndex(3);
                 client.setInitialComplete(true);
               } else {
-                printBitrate();
                 if (client.getFileLength() != 0 && isConnectionOpen) {
                   if (client.getFileLength() < client.getSize()) {
                     client.setSize(client.getFileLength());
@@ -216,7 +189,6 @@ public class Server {
               client.setSize(size);
               client.setFrom(0);
               client.setTo(size);
-              printBitrate();
               client.setIndex(1);
               client.setCommandType((byte) 5);
               addToBufferNewElement(client);
@@ -230,7 +202,7 @@ public class Server {
               client.setCommandType((byte) 4);
               client.setInitialComplete(true);
             }
-            if(!client.isFinalStep()) {
+            if (!client.isFinalStep()) {
               addToBufferNewElement(client);
             }
             if (client.getMessageLength() == 0 || client.isFinalStep()) {
@@ -253,13 +225,11 @@ public class Server {
             isNeedStop = true;
             break;
           case "exit":
-            currentCommand = words[0].toLowerCase();
 //            addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1);
             while (sendBuffer.size() != 0) {
               Thread.sleep(1);
             }
             System.exit(0);
-            currentCommand = "";
             break;
         }
         Thread.sleep(1);
@@ -353,7 +323,9 @@ public class Server {
               byte[] messageBts = Arrays
                   .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt());
               String clientId = extractClientId(message);
-              System.out.println("Receive command \"" + new String(messageBts) + "\" from client \"" + clientId + "\"");
+              System.out.println(
+                  "Receive command \"" + new String(messageBts) + "\" from client \"" + clientId
+                      + "\"");
               receiveBuffer.removeIf(element -> element.getId() == extractId(message));
               clients.add(new Client(clientId, new String(messageBts),
                   receive.getSocketAddress()));
@@ -432,7 +404,6 @@ public class Server {
     readedMessageIds = Collections.synchronizedList(new ArrayList<>());
     clients = Collections.synchronizedList(new ArrayList<>());
     socket = new DatagramSocket(SOURCE_PORT);
-    currentCommand = "";
     maxSendBufferSize = 4;
     isConnectionOpen = true;
     Thread sendBufferMonitorThread = new Thread(() -> {
@@ -500,7 +471,6 @@ public class Server {
         clearBuffer();
         sendBuffer.clear();
         count = 0;
-        currentCommand = "";
         maxSendBufferSize = 3;
         attempts = 0;
         isConnectionOpen = true;
@@ -512,54 +482,6 @@ public class Server {
       Thread.sleep(1000);
     }
   }
-
-//  public void run() throws InterruptedException, IOException {
-//    while (!currentCommand.equals("exit")) {
-//      String message = read();
-//      System.out.println("Receive message: " + message);
-//      String[] words = message.split("\\s");
-//      switch (words[0].toLowerCase()) {
-//        case "echo":
-//          currentCommand = words[0].toLowerCase();
-//          addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1, 1);
-//          clearBuffer();
-//          currentCommand = "";
-//          break;
-//        case "time":
-//          currentCommand = words[0].toLowerCase();
-//          addDataToSendBuffer(executeTime().getBytes(), (byte) 2, 1);
-//          clearBuffer();
-//          currentCommand = "";
-//          break;
-//        case "upload":
-//          currentCommand = words[0].toLowerCase();
-//          clearBuffer();
-//          receiveFile(WORK_DIRECTORY_PATH + words[1]);
-//          addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1);
-//          clearBuffer();
-//          currentCommand = "";
-//          break;
-//        case "download":
-//          currentCommand = words[0].toLowerCase();
-//          clearBuffer();
-//          int index = sendFile(WORK_DIRECTORY_PATH + words[1]);
-//          clearBuffer();
-//          addDataToSendBuffer("File successfully delivered".getBytes(), (byte) 7, index);
-//          clearBuffer();
-//          currentCommand = "";
-//          break;
-//        case "exit":
-//          currentCommand = words[0].toLowerCase();
-//          addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1);
-//          while (sendBuffer.size() != 0) {
-//            Thread.sleep(1);
-//          }
-//          System.exit(0);
-//          currentCommand = "";
-//          break;
-//      }
-//    }
-//  }
 
   public static void main(String args[]) {
     Server server = new Server();
