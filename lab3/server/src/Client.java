@@ -7,7 +7,7 @@ public class Client {
   private String clientId;
   private String command;
   private CommandStatus status;
-  private boolean isReceiveClientDuplicate;
+  private boolean isFinalStep;
   private SocketAddress socketAddress;
   private FileOutputStream outputStream;
   private int messageLength;
@@ -22,11 +22,12 @@ public class Client {
   private byte[] message;
   private byte commandType;
   private boolean isPresentData;
+  private boolean isDetectSendBufferOverflow;
 
   public Client(String clientId) {
     this.clientId = clientId;
     this.status = CommandStatus.NOT_STARTED;
-    this.isReceiveClientDuplicate = false;
+    this.isFinalStep = false;
 
   }
 
@@ -36,14 +37,16 @@ public class Client {
     this.socketAddress = socketAddress;
     this.isInitialComplete = false;
     this.isPresentFileLength = false;
+    this.isFinalStep = false;
+    this.isDetectSendBufferOverflow = false;
   }
 
   public Client(String clientId, String command, CommandStatus status,
-      boolean isReceiveClientDuplicate, SocketAddress socketAddress) {
+      boolean isFinalStep, SocketAddress socketAddress) {
     this.clientId = clientId;
     this.command = command;
     this.status = status;
-    this.isReceiveClientDuplicate = isReceiveClientDuplicate;
+    this.isFinalStep = isFinalStep;
     this.socketAddress = socketAddress;
   }
 
@@ -61,6 +64,14 @@ public class Client {
 
   public boolean isPresentFileLength() {
     return isPresentFileLength;
+  }
+
+  public boolean isDetectSendBufferOverflow() {
+    return isDetectSendBufferOverflow;
+  }
+
+  public void setDetectSendBufferOverflow(boolean detectSendBufferOverflow) {
+    isDetectSendBufferOverflow = detectSendBufferOverflow;
   }
 
   public void setPresentFileLength(boolean presentFileLength) {
@@ -143,12 +154,12 @@ public class Client {
     this.socketAddress = socketAddress;
   }
 
-  public boolean isReceiveClientDuplicate() {
-    return isReceiveClientDuplicate;
+  public boolean isFinalStep() {
+    return isFinalStep;
   }
 
-  public void setReceiveClientDuplicate(boolean receiveClientDuplicate) {
-    isReceiveClientDuplicate = receiveClientDuplicate;
+  public void setFinalStep(boolean finalStep) {
+    isFinalStep = finalStep;
   }
 
   public String getClientId() {
@@ -197,7 +208,7 @@ public class Client {
         "clientId='" + clientId + '\'' +
         ", command='" + command + '\'' +
         ", status=" + status +
-        ", isReceiveClientDuplicate=" + isReceiveClientDuplicate +
+        ", isReceiveClientDuplicate=" + isFinalStep +
         ", socketAddress=" + socketAddress +
         ", outputStream=" + outputStream +
         ", messageLength=" + messageLength +

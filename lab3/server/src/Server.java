@@ -103,8 +103,6 @@ public class Server {
             addToBufferNewElement(client);
             if (client.getMessageLength() == 0) {
               clearBuffer();
-              System.out.println("Client: " + client);
-              System.out.println("Clients: " + clients);
               clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
             }
             isNeedStop = true;
@@ -145,7 +143,6 @@ public class Server {
                         .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt()))
                         .getInt());
                     receiveBuffer.removeIf(elem -> elem.getId() == extractId(message));
-                    System.out.println("Received file length: " + client.getFileLength());
                     client.setPresentFileLength(true);
                     break;
                   }
@@ -157,7 +154,6 @@ public class Server {
                 client.setSize(size);
                 client.setOutputStream(new FileOutputStream(new File(WORK_DIRECTORY_PATH + words[1]), true));
                 client.setIndex(3);
-                System.out.println("Receive buffer: " + receiveBuffer);
                 client.setInitialComplete(true);
               } else {
                 printBitrate();
@@ -202,6 +198,7 @@ public class Server {
                   client.setCommandType((byte) 8);
                   addToBufferNewElement(client);
                   clearBuffer();
+                  client.getOutputStream().close();
                   clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                 }
               }
@@ -233,13 +230,23 @@ public class Server {
               client.setCommandType((byte) 4);
               client.setInitialComplete(true);
             }
-            addToBufferNewElement(client);
-            if (client.getMessageLength() == 0) {
+            if(!client.isFinalStep()) {
+              addToBufferNewElement(client);
+            }
+            if (client.getMessageLength() == 0 || client.isFinalStep()) {
               clearBuffer();
+              client.setFinalStep(true);
               client.setMessage("File successfully delivered".getBytes());
               client.setCommandType((byte) 7);
               client.setMessageLength(client.getMessage().length);
+              client.setIndex(1);
+              client.setFrom(0);
+              client.setSize(Math.min(client.getMessageLength(), 1024));
+              client.setTo(client.getSize());
               addToBufferNewElement(client);
+              if (client.isDetectSendBufferOverflow()) {
+                continue;
+              }
               clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
               clearBuffer();
             }
@@ -263,6 +270,7 @@ public class Server {
 
   private void addToBufferNewElement(Client client) throws InterruptedException {
     if (sendBuffer.size() < maxSendBufferSize) {
+      client.setDetectSendBufferOverflow(false);
       int from = client.getFrom();
       int messageLength = client.getMessageLength();
       byte[] temp = Arrays.copyOfRange(client.getMessage(), from, client.getTo());
@@ -281,9 +289,10 @@ public class Server {
       if (messageLength < client.getSize()) {
         client.setSize(messageLength);
       }
-      System.out.println("MessageLength: " + messageLength);
       client.setTo(client.getTo() + client.getSize());
       client.setIndex(client.getIndex() + 1);
+    } else {
+      client.setDetectSendBufferOverflow(true);
     }
 
   }
@@ -406,7 +415,6 @@ public class Server {
               DatagramPacket packet = new DatagramPacket(element.getMessage(),
                   element.getMessage().length, element.getSocketAddress());
               socket.send(packet);
-              System.out.println("Packet was send");
               element.waitAck();
 
             }
@@ -498,7 +506,7 @@ public class Server {
         isConnectionOpen = true;
         isConnectionOpen = true;
       }
-      if (!currentCommand.isEmpty()) {
+      if (clients.size() > 0) {
         count += 1000;
       }
       Thread.sleep(1000);
