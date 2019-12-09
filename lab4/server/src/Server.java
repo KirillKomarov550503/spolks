@@ -19,6 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 
 public class Server {
@@ -27,12 +28,9 @@ public class Server {
   private volatile List<BufferElement> sendBuffer;
   private volatile List<BufferElement> receiveBuffer;
   private volatile List<ReadSegment> readedMessageIds;
-  private static final String DESTINATION_ADDRESS = "127.0.0.1";
   private static final int SOURCE_PORT = 5002;
-  private static final int DESTINATION_PORT = 5001;
   private volatile int maxSendBufferSize;
   private static final int TCP_MESSAGE_SIZE = 1043;
-  private volatile int dataSize;
   private volatile boolean isConnectionOpen;
   private static final String WORK_DIRECTORY_PATH = "C:\\Users\\kirya\\Desktop\\7_sem\\spolks\\lab1\\work_directory_for_server\\";
   private volatile FileOutputStream outputStream;
@@ -42,7 +40,7 @@ public class Server {
   private volatile int count;
   private volatile List<Client> clients;
   private ExecutorService threadPoolExecutor;
-  private List<Future<Void>> futures;
+  private Semaphore semaphore;
 
   private String extractClientId(byte[] message) {
     return new String(Arrays.copyOfRange(message, 5, 15));
@@ -82,7 +80,6 @@ public class Server {
             client.getSocketAddress()));
         from += size;
         messageLength -= size;
-        dataSize += size;
         if (messageLength < size) {
           size = messageLength;
         }
@@ -151,7 +148,6 @@ public class Server {
         continue;
       }
       fileLength -= size;
-      dataSize += size;
     }
     outputStream.close();
   }
@@ -184,7 +180,9 @@ public class Server {
       if (isConnectionOpen) {
         byte[] message = new byte[TCP_MESSAGE_SIZE];
         DatagramPacket receive = new DatagramPacket(message, message.length);
+        semaphore.acquire();
         socket.receive(receive);
+        semaphore.release();
         count = 0;
         attempts = 0;
         if (message[4]
@@ -226,7 +224,9 @@ public class Server {
               concat(ByteBuffer.allocate(4).putInt(messageId).array(),
                   concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE - 10,
               receive.getSocketAddress());
+          semaphore.acquire();
           socket.send(ackPacket);
+          semaphore.release();
         } else {
           //со стороны клиента. Если получили ACK,
           // то удаляем сообщение из буфера отправки.
@@ -261,7 +261,9 @@ public class Server {
             if (!element.isWaitAck()) {
               DatagramPacket packet = new DatagramPacket(element.getMessage(),
                   element.getMessage().length, element.getSocketAddress());
+              semaphore.acquire();
               socket.send(packet);
+              semaphore.release();
               element.waitAck();
 
             }
@@ -280,8 +282,9 @@ public class Server {
     socket = new DatagramSocket(SOURCE_PORT);
     maxSendBufferSize = 4;
     isConnectionOpen = true;
-    threadPoolExecutor = Executors.newFixedThreadPool(1);
+    threadPoolExecutor = Executors.newFixedThreadPool(2);
     clients = new CopyOnWriteArrayList<>();
+    semaphore = new Semaphore(2, true);
     Thread sendBufferMonitorThread = new Thread(() -> {
       try {
         monitorSendBuffer();
@@ -360,7 +363,7 @@ public class Server {
     while (true) {
       for (int i = 0; i < clients.size(); i++) {
 
-        Client client =  clients.get(i);
+        Client client = clients.get(i);
         if (!client.isStartExecute()) {
           client.setStartExecute(true);
           threadPoolExecutor.execute(() -> {
@@ -372,15 +375,13 @@ public class Server {
                   addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1, 1, client);
                   Thread.sleep(100);
                   clearBuffer(client);
-                  client.setStartExecute(true);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  client.setNeedDelete(true);
                   break;
                 case "time":
                   addDataToSendBuffer(executeTime().getBytes(), (byte) 2, 1, client);
                   Thread.sleep(100);
                   clearBuffer(client);
-                  client.setStartExecute(true);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  client.setNeedDelete(true);
                   break;
                 case "upload":
                   clearBuffer(client);
@@ -388,8 +389,7 @@ public class Server {
                   addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1, client);
                   Thread.sleep(100);
                   clearBuffer(client);
-                  client.setStartExecute(true);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  client.setNeedDelete(true);
                   break;
                 case "download":
                   clearBuffer(client);
@@ -400,8 +400,7 @@ public class Server {
                       client);
                   Thread.sleep(100);
                   clearBuffer(client);
-                  client.setStartExecute(true);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  client.setNeedDelete(true);
                   break;
                 case "exit":
                   addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1,
@@ -409,7 +408,7 @@ public class Server {
                   while (sendBuffer.size() != 0) {
                     Thread.sleep(1);
                   }
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  client.setNeedDelete(true);
                   System.exit(0);
                   break;
               }
@@ -417,6 +416,9 @@ public class Server {
               e.printStackTrace();
             }
           });
+        }
+        if(client.isNeedDelete()) {
+          clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
         }
       }
 

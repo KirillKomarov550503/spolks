@@ -20,6 +20,14 @@ public class Client {
     this.isNeedDelete = false;
   }
 
+  public boolean isNeedDelete() {
+    return isNeedDelete;
+  }
+
+  public void setNeedDelete(boolean needDelete) {
+    isNeedDelete = needDelete;
+  }
+
   public String getClientId() {
     return clientId;
   }
