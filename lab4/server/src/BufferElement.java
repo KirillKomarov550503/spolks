@@ -48,7 +48,7 @@ public class BufferElement {
     thread = new Thread(() -> {
       try {
         isWaitAck = true;
-        Thread.sleep(50);
+        Thread.sleep(150);
         isWaitAck = false;
       } catch (InterruptedException e) {
         e.printStackTrace();

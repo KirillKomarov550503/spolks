@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -190,6 +191,7 @@ public class Server {
             != 6) { // со стороны сервера. Проверяем айдишку уже полученных пакетов. Всегда отправляем ACK при получении пакета
           // Если пакет мы прежде не получали, то добавляем его в буфер чтения и в буфер прочитанных айдишников сообщений
           int messageId = extractId(message);
+
           boolean isContain = false;
           for (int i = 0; i < readedMessageIds.size(); i++) {
             if (readedMessageIds.get(i).getMessageId() == messageId
@@ -203,6 +205,7 @@ public class Server {
             BufferElement elem = new BufferElement(messageId, message, receive.getSocketAddress());
             receiveBuffer.add(elem);
             readedMessageIds.add(new ReadSegment(messageId, message[4], extractClientId(message)));
+
             if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
                 || message[4] == 8) {
               byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
@@ -216,6 +219,7 @@ public class Server {
               clients.add(new Client(clientId, new String(messageBts),
                   receive.getSocketAddress()));
             }
+
           }
           byte[] emptyData = new byte[1027];
           DatagramPacket ackPacket = new DatagramPacket(
@@ -276,8 +280,8 @@ public class Server {
     socket = new DatagramSocket(SOURCE_PORT);
     maxSendBufferSize = 4;
     isConnectionOpen = true;
-    threadPoolExecutor = Executors.newFixedThreadPool(2);
-    clients = Collections.synchronizedList(new ArrayList<>());
+    threadPoolExecutor = Executors.newFixedThreadPool(1);
+    clients = new CopyOnWriteArrayList<>();
     Thread sendBufferMonitorThread = new Thread(() -> {
       try {
         monitorSendBuffer();
@@ -355,39 +359,49 @@ public class Server {
   public void run() throws InterruptedException, IOException {
     while (true) {
       for (int i = 0; i < clients.size(); i++) {
-        Client client = clients.get(i);
+
+        Client client =  clients.get(i);
         if (!client.isStartExecute()) {
+          client.setStartExecute(true);
           threadPoolExecutor.execute(() -> {
             try {
               String message = client.getCommand();
-              System.out.println("Receive message: " + message);
               String[] words = message.split("\\s");
               switch (words[0].toLowerCase()) {
                 case "echo":
                   addDataToSendBuffer(executeEcho(words).getBytes(), (byte) 1, 1, client);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  Thread.sleep(100);
                   clearBuffer(client);
+                  client.setStartExecute(true);
+                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                   break;
                 case "time":
                   addDataToSendBuffer(executeTime().getBytes(), (byte) 2, 1, client);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  Thread.sleep(100);
                   clearBuffer(client);
+                  client.setStartExecute(true);
+                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                   break;
                 case "upload":
                   clearBuffer(client);
                   receiveFile(WORK_DIRECTORY_PATH + words[1], client);
                   addDataToSendBuffer("File successfully received".getBytes(), (byte) 8, 1, client);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  Thread.sleep(100);
                   clearBuffer(client);
+                  client.setStartExecute(true);
+                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                   break;
                 case "download":
                   clearBuffer(client);
                   int index = sendFile(WORK_DIRECTORY_PATH + words[1], client);
+                  Thread.sleep(100);
                   clearBuffer(client);
                   addDataToSendBuffer("File successfully delivered".getBytes(), (byte) 7, index,
                       client);
-                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+                  Thread.sleep(100);
                   clearBuffer(client);
+                  client.setStartExecute(true);
+                  clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
                   break;
                 case "exit":
                   addDataToSendBuffer("Server start closing connection".getBytes(), (byte) 3, 1,
@@ -396,7 +410,6 @@ public class Server {
                     Thread.sleep(1);
                   }
                   clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
-                  threadPoolExecutor.shutdown();
                   System.exit(0);
                   break;
               }

@@ -10,12 +10,14 @@ public class Client {
   private byte[] message;
   private byte commandType;
   private boolean isStartExecute;
+  private boolean isNeedDelete;
 
   public Client(String clientId, String command, SocketAddress socketAddress) {
     this.clientId = clientId;
     this.command = command;
     this.socketAddress = socketAddress;
     this.isStartExecute = false;
+    this.isNeedDelete = false;
   }
 
   public String getClientId() {

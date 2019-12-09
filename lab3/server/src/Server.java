@@ -362,22 +362,6 @@ public class Server {
         .removeIf(readSegment -> readSegment.getClientId().equals(client.getClientId()));
   }
 
-  private String read() throws InterruptedException {
-    while (receiveBuffer.size() == 0) {
-      Thread.sleep(1);
-    }
-    byte[] message = receiveBuffer.get(0).getMessage();
-    if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
-        || message[4] == 8) {
-      byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
-      byte[] messageBts = Arrays
-          .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt());
-      receiveBuffer.removeIf(elem -> elem.getId() == extractId(message));
-      return new String(messageBts);
-    }
-    return new String();
-  }
-
   private void monitorSendBuffer() throws IOException, InterruptedException {
     while (true) {
       if (isConnectionOpen) {
@@ -440,11 +424,6 @@ public class Server {
     sendBufferMonitorThread.start();
     receiveMessagesThread.start();
     detectSoTimeoutThread.start();
-  }
-
-  public void closeConnection() {
-    socket.close();
-    System.out.println("Close connection");
   }
 
   private String executeEcho(String[] words) {

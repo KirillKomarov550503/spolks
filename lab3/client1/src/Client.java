@@ -51,7 +51,8 @@ public class Client {
   private byte[] createMessageHeader(int index, byte messageType, byte[] message, byte[] clientId) {
     byte[] indexBts = ByteBuffer.allocate(4).putInt(index).array();
     byte[] lengthBts = ByteBuffer.allocate(4).putInt(message.length).array();
-    return concat(concat(concat(indexBts, new byte[]{messageType}), clientId), concat(lengthBts, message));
+    return concat(concat(concat(indexBts, new byte[]{messageType}), clientId),
+        concat(lengthBts, message));
   }
 
   private void printBitrate() {
@@ -91,7 +92,8 @@ public class Client {
         while (sendBuffer.size() >= maxSendBufferSize) {
           Thread.sleep(1);
         }
-        sendBuffer.add(new BufferElement(index, createMessageHeader(index, commandType, temp, clientId)));
+        sendBuffer
+            .add(new BufferElement(index, createMessageHeader(index, commandType, temp, clientId)));
         from += size;
         messageLength -= size;
         dataSize += size;
@@ -177,7 +179,8 @@ public class Client {
    *  7 - download
    *  8 - upload
    */
-  private void sendFile(String command, String filePath, String clientId) throws InterruptedException, IOException {
+  private void sendFile(String command, String filePath, String clientId)
+      throws InterruptedException, IOException {
     byte[] btsId = clientId.getBytes();
     addDataToSendBuffer(command.getBytes(), (byte) 8, 1, btsId);
     byte[] file = readFile(filePath);
