@@ -181,9 +181,9 @@ public class Server {
       if (isConnectionOpen) {
         byte[] message = new byte[TCP_MESSAGE_SIZE];
         DatagramPacket receive = new DatagramPacket(message, message.length);
-//        semaphore.acquire();
+        semaphore.acquire();
         socket.receive(receive);
-//        semaphore.release();
+        semaphore.release();
         count = 0;
         attempts = 0;
         if (message[4]
@@ -225,9 +225,9 @@ public class Server {
               concat(ByteBuffer.allocate(4).putInt(messageId).array(),
                   concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE - 10,
               receive.getSocketAddress());
-//          semaphore.acquire();
+          semaphore.acquire();
           socket.send(ackPacket);
-//          semaphore.release();
+          semaphore.release();
         } else {
           //со стороны клиента. Если получили ACK,
           // то удаляем сообщение из буфера отправки.
@@ -259,9 +259,9 @@ public class Server {
           if (!element.isWaitAck()) {
             DatagramPacket packet = new DatagramPacket(element.getMessage(),
                 element.getMessage().length, element.getSocketAddress());
-//              semaphore.acquire();
+              semaphore.acquire();
             socket.send(packet);
-//              semaphore.release();
+              semaphore.release();
             element.waitAck();
 
           }
@@ -413,9 +413,9 @@ public class Server {
               e.printStackTrace();
             }
           });
-          if(client.isNeedDelete()) {
-            clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
-          }
+        }
+        if(client.isNeedDelete()) {
+          clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
         }
         Thread.sleep(1);
       }
