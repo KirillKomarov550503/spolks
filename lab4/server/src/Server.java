@@ -98,11 +98,12 @@ public class Server {
       throws IOException, InterruptedException {
     boolean isPresentFileLength = false;
     int fileLength = 0;
+    System.out.println("Befor wait file size ");
     while (!isPresentFileLength && isConnectionOpen) {
-      for (int i = 0; i < receiveBuffer.size(); i++) {
-        if (extractClientId(receiveBuffer.get(i).getMessage())
-            .equals(client.getClientId())) {
-          byte[] message = receiveBuffer.get(i).getMessage();
+      for (BufferElement element : receiveBuffer) {
+        if (extractClientId(element.getMessage())
+            .equals(client.getClientId()) && element.getId() == 2) {
+          byte[] message = element.getMessage();
           if (message[4] == 5) {
             isPresentFileLength = true;
             byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
@@ -116,6 +117,7 @@ public class Server {
 
       }
     }
+    System.out.println("File length: " + fileLength);
     int size = Math.min(fileLength, BYTE_FOR_READ_WRITE);
     outputStream = new FileOutputStream(new File(filePath), true);
     int index = 3;
@@ -124,19 +126,18 @@ public class Server {
         size = fileLength;
       }
       boolean isPresentData = false;
-      for (int i = 0; i < receiveBuffer.size(); i++) {
-        if (extractClientId(receiveBuffer.get(i).getMessage())
+      for (BufferElement element : receiveBuffer) {
+        if (extractClientId(element.getMessage())
             .equals(client.getClientId())) {
-          if (receiveBuffer.get(i).getId() == index && receiveBuffer.get(i).getMessage()[4] == 4) {
+          if (element.getId() == index && element.getMessage()[4] == 4) {
             byte[] messageLengthsBts = Arrays
-                .copyOfRange(receiveBuffer.get(i).getMessage(), 15, 19);
+                .copyOfRange(element.getMessage(), 15, 19);
             byte[] data = Arrays
-                .copyOfRange(receiveBuffer.get(i).getMessage(), 19,
+                .copyOfRange(element.getMessage(), 19,
                     19 + ByteBuffer.wrap(messageLengthsBts).getInt());
-            final int j = i;
             outputStream.write(data);
             receiveBuffer
-                .removeIf(elem -> elem.getId() == extractId(receiveBuffer.get(j).getMessage()));
+                .removeIf(elem -> elem.getId() == extractId(element.getMessage()));
             index++;
             isPresentData = true;
             break;
@@ -180,9 +181,9 @@ public class Server {
       if (isConnectionOpen) {
         byte[] message = new byte[TCP_MESSAGE_SIZE];
         DatagramPacket receive = new DatagramPacket(message, message.length);
-        semaphore.acquire();
+//        semaphore.acquire();
         socket.receive(receive);
-        semaphore.release();
+//        semaphore.release();
         count = 0;
         attempts = 0;
         if (message[4]
@@ -191,10 +192,10 @@ public class Server {
           int messageId = extractId(message);
 
           boolean isContain = false;
-          for (int i = 0; i < readedMessageIds.size(); i++) {
-            if (readedMessageIds.get(i).getMessageId() == messageId
-                && readedMessageIds.get(i).getType() == message[4]
-                && readedMessageIds.get(i).getClientId().equals(extractClientId(message))) {
+          for (ReadSegment element : readedMessageIds) {
+            if (element.getMessageId() == messageId
+                && element.getType() == message[4]
+                && element.getClientId().equals(extractClientId(message))) {
               isContain = true;
               break;
             }
@@ -224,15 +225,14 @@ public class Server {
               concat(ByteBuffer.allocate(4).putInt(messageId).array(),
                   concat(new byte[]{6, message[4]}, emptyData)), TCP_MESSAGE_SIZE - 10,
               receive.getSocketAddress());
-          semaphore.acquire();
+//          semaphore.acquire();
           socket.send(ackPacket);
-          semaphore.release();
+//          semaphore.release();
         } else {
           //со стороны клиента. Если получили ACK,
           // то удаляем сообщение из буфера отправки.
           final int messageId = extractId(message);
-          for (int i = 0; i < sendBuffer.size(); i++) {
-            BufferElement element = sendBuffer.get(i);
+          for (BufferElement element : sendBuffer) {
             if (element.getId() == messageId && element.getMessage()[4] == message[5]) {
               sendBuffer.removeIf(elem -> elem.getId() == messageId);
               break;
@@ -255,20 +255,18 @@ public class Server {
   private void monitorSendBuffer() throws IOException, InterruptedException {
     while (true) {
       if (isConnectionOpen) {
-        synchronized (sendBuffer) {
-          for (int i = 0; i < sendBuffer.size(); i++) {
-            BufferElement element = sendBuffer.get(i);
-            if (!element.isWaitAck()) {
-              DatagramPacket packet = new DatagramPacket(element.getMessage(),
-                  element.getMessage().length, element.getSocketAddress());
-              semaphore.acquire();
-              socket.send(packet);
-              semaphore.release();
-              element.waitAck();
+        for (BufferElement element : sendBuffer) {
+          if (!element.isWaitAck()) {
+            DatagramPacket packet = new DatagramPacket(element.getMessage(),
+                element.getMessage().length, element.getSocketAddress());
+//              semaphore.acquire();
+            socket.send(packet);
+//              semaphore.release();
+            element.waitAck();
 
-            }
           }
         }
+
       }
       Thread.sleep(1);
     }
@@ -276,9 +274,9 @@ public class Server {
   }
 
   private void init() throws SocketException, UnknownHostException {
-    sendBuffer = Collections.synchronizedList(new ArrayList<>());
-    receiveBuffer = Collections.synchronizedList(new ArrayList<>());
-    readedMessageIds = Collections.synchronizedList(new ArrayList<>());
+    sendBuffer = new CopyOnWriteArrayList<>();
+    receiveBuffer = new CopyOnWriteArrayList<>();
+    readedMessageIds = new CopyOnWriteArrayList<>();
     socket = new DatagramSocket(SOURCE_PORT);
     maxSendBufferSize = 4;
     isConnectionOpen = true;
@@ -361,14 +359,13 @@ public class Server {
 
   public void run() throws InterruptedException, IOException {
     while (true) {
-      for (int i = 0; i < clients.size(); i++) {
-
-        Client client = clients.get(i);
+      for (Client client : clients) {
         if (!client.isStartExecute()) {
           client.setStartExecute(true);
           threadPoolExecutor.execute(() -> {
             try {
               String message = client.getCommand();
+              System.out.println("Receive: " + message);
               String[] words = message.split("\\s");
               switch (words[0].toLowerCase()) {
                 case "echo":
@@ -416,12 +413,14 @@ public class Server {
               e.printStackTrace();
             }
           });
+          if(client.isNeedDelete()) {
+            clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+          }
         }
-        if(client.isNeedDelete()) {
-          clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
-        }
+        Thread.sleep(1);
       }
-
+      Thread.sleep(1
+      );
     }
 
   }
