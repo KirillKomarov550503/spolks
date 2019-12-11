@@ -8,17 +8,18 @@ public class BufferElement {
   private Thread thread;
   private volatile boolean isWaitAck;
   private SocketAddress socketAddress;
+  private String clientId;
 
   public BufferElement() {
     id = 0;
   }
 
-  public BufferElement(int id, byte[] message, SocketAddress socketAddress) {
+  public BufferElement(int id, byte[] message, SocketAddress socketAddress, String clientId) {
     this.id = id;
     this.message = message;
     this.socketAddress = socketAddress;
     isWaitAck = false;
-
+    this.clientId = clientId;
   }
 
   public SocketAddress getSocketAddress() {

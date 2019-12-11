@@ -77,7 +77,7 @@ public class Server {
           Thread.sleep(1);
         }
         sendBuffer.add(new BufferElement(index, createMessageHeader(index, commandType, temp),
-            client.getSocketAddress()));
+            client.getSocketAddress(), client.getClientId()));
         from += size;
         messageLength -= size;
         if (messageLength < size) {
@@ -201,23 +201,25 @@ public class Server {
             }
           }
           if (!isContain) {
-            BufferElement elem = new BufferElement(messageId, message, receive.getSocketAddress());
+            BufferElement elem = new BufferElement(messageId, message, receive.getSocketAddress(),
+                extractClientId(message));
             receiveBuffer.add(elem);
-            readedMessageIds.add(new ReadSegment(messageId, message[4], extractClientId(message)));
+            readedMessageIds.add(new ReadSegment(messageId, message[4], extractClientId(message),
+                receive.getSocketAddress()));
 
-            if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
-                || message[4] == 8) {
-              byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
-              byte[] messageBts = Arrays
-                  .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt());
-              String clientId = extractClientId(message);
-              System.out.println(
-                  "Receive command \"" + new String(messageBts) + "\" from client \"" + clientId
-                      + "\"");
-              receiveBuffer.removeIf(element -> element.getId() == extractId(message));
-              clients.add(new Client(clientId, new String(messageBts),
-                  receive.getSocketAddress()));
-            }
+//            if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
+//                || message[4] == 8) {
+//              byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
+//              byte[] messageBts = Arrays
+//                  .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt());
+//              String clientId = extractClientId(message);
+//              System.out.println(
+//                  "Receive command \"" + new String(messageBts) + "\" from client \"" + clientId
+//                      + "\"");
+//              receiveBuffer.removeIf(element -> element.getId() == extractId(message));
+//              clients.add(new Client(clientId, new String(messageBts),
+//                  receive.getSocketAddress()));
+//            }
 
           }
           byte[] emptyData = new byte[1027];
@@ -259,9 +261,9 @@ public class Server {
           if (!element.isWaitAck()) {
             DatagramPacket packet = new DatagramPacket(element.getMessage(),
                 element.getMessage().length, element.getSocketAddress());
-              semaphore.acquire();
+            semaphore.acquire();
             socket.send(packet);
-              semaphore.release();
+            semaphore.release();
             element.waitAck();
 
           }
@@ -357,10 +359,30 @@ public class Server {
 
   }
 
+  private Client read() throws InterruptedException {
+    while (receiveBuffer.size() == 0) {
+      Thread.sleep(1);
+    }
+    BufferElement element = receiveBuffer.get(0);
+    byte[] message = receiveBuffer.get(0).getMessage();
+    if (message[4] == 1 || message[4] == 2 || message[4] == 3 || message[4] == 7
+        || message[4] == 8) {
+      byte[] messageLengthsBts = Arrays.copyOfRange(message, 15, 19);
+      byte[] messageBts = Arrays
+          .copyOfRange(message, 19, 19 + ByteBuffer.wrap(messageLengthsBts).getInt());
+      receiveBuffer.removeIf(elem -> elem.getId() == extractId(message));
+      return new Client(extractClientId(element.getMessage()), new String(messageBts),
+          element.getSocketAddress());
+    }
+    return null;
+  }
+
   public void run() throws InterruptedException, IOException {
     while (true) {
-      for (Client client : clients) {
-        if (!client.isStartExecute()) {
+
+//      for (Client client : clients) {
+        Client client = read();
+        if (client != null) {
           client.setStartExecute(true);
           threadPoolExecutor.execute(() -> {
             try {
@@ -412,11 +434,12 @@ public class Server {
             } catch (InterruptedException | IOException e) {
               e.printStackTrace();
             }
+//            if (client.isNeedDelete()) {
+//              clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
+//            }
           });
-        }
-        if(client.isNeedDelete()) {
-          clients.removeIf(cl -> cl.getClientId().equals(client.getClientId()));
-        }
+//        }
+
         Thread.sleep(1);
       }
       Thread.sleep(1
